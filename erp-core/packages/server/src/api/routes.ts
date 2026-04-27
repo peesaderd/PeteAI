@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getDatabase } from '../db/database.js';
 import { AuthManager } from '../auth/auth.js';
 import { TenantManager } from '../tenants/manager.js';
+import { RBACManager } from '../rbac/index.js';
 import { handleToolCall } from '../mcp/server.js';
 
 export function createRouter() {
@@ -21,6 +22,9 @@ export function createRouter() {
       }
       const tenant = tenants.create(tenantName, tenantSlug);
       const user = await auth.register(tenant.id, email, name, password, 'admin');
+      // Initialize default roles for the new tenant
+      const rbac = new RBACManager();
+      rbac.initializeTenantRoles(tenant.id);
       res.json({ tenant, user });
     } catch (err: any) {
       res.status(400).json({ error: err.message });

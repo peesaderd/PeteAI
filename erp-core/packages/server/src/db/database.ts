@@ -327,5 +327,120 @@ function initializeSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_channel_listings_tenant ON channel_listings(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_channel_listings_connection ON channel_listings(channel_connection_id);
     CREATE INDEX IF NOT EXISTS idx_channel_orders_tenant ON channel_orders(tenant_id);
+
+    -- ============================================================
+    -- ADVANCED REPORTING
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS saved_reports (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      description TEXT,
+      type TEXT NOT NULL,
+      config TEXT NOT NULL DEFAULT '{}',
+      schedule TEXT,
+      recipients TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_saved_reports_tenant ON saved_reports(tenant_id);
+
+    -- ============================================================
+    -- NOTIFICATIONS
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS notification_channels (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      type TEXT NOT NULL,
+      label TEXT NOT NULL,
+      config TEXT NOT NULL DEFAULT '{}',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_rules (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      condition_config TEXT,
+      channel_ids TEXT NOT NULL DEFAULT '[]',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_logs (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      rule_id TEXT REFERENCES notification_rules(id),
+      event_type TEXT NOT NULL,
+      channel_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      message TEXT,
+      sent_at INTEGER,
+      error TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_notif_channels_tenant ON notification_channels(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_notif_rules_tenant ON notification_rules(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_notif_logs_tenant ON notification_logs(tenant_id);
+
+    -- ============================================================
+    -- RBAC & TEAM MANAGEMENT
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS roles (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      description TEXT,
+      permissions TEXT NOT NULL DEFAULT '[]',
+      is_system INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS teams (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      description TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS team_members (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL REFERENCES teams(id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      role_id TEXT REFERENCES roles(id),
+      created_at INTEGER NOT NULL,
+      UNIQUE(team_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      user_id TEXT REFERENCES users(id),
+      action TEXT NOT NULL,
+      resource_type TEXT,
+      resource_id TEXT,
+      details TEXT,
+      ip_address TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_roles_tenant ON roles(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_teams_tenant ON teams(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_team_members_team ON team_members(team_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant ON audit_logs(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
   `);
 }

@@ -15,6 +15,9 @@ import { AuthManager } from '../auth/auth.js';
 import { EtsyAnalytics } from '../analytics/etsy.js';
 import { ProductionPlanner } from '../production/index.js';
 import { ChannelManager } from '../channels/index.js';
+import { ReportEngine } from '../reports/index.js';
+import { NotificationEngine } from '../notifications/index.js';
+import { RBACManager } from '../rbac/index.js';
 
 function tool(name: string, description: string, schema: z.ZodObject<any>) {
   return { name, description, inputSchema: zodToJsonSchema(schema) };
@@ -387,6 +390,167 @@ const TOOLS = [
   tool('get_inventory_sync_status', 'Check inventory sync status across channels', z.object({
     tenantId: z.string().describe('Tenant ID'),
   })),
+
+  // ---- ADVANCED REPORTS ----
+  tool('create_report', 'Create a saved report configuration', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    name: z.string().describe('Report name'),
+    description: z.string().optional().describe('Report description'),
+    type: z.enum(['sales', 'inventory', 'production', 'channel', 'custom']).describe('Report type'),
+    config: z.record(z.any()).describe('Report configuration (startDate, endDate, groupBy, etc.)'),
+    schedule: z.enum(['daily', 'weekly', 'monthly']).optional().describe('Schedule for auto-generation'),
+    recipients: z.array(z.string()).optional().describe('Notification recipients'),
+  })),
+
+  tool('list_reports', 'List saved reports', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    type: z.string().optional().describe('Filter by report type'),
+  })),
+
+  tool('get_report', 'Get a saved report configuration', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    reportId: z.string().describe('Report ID'),
+  })),
+
+  tool('update_report', 'Update a saved report', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    reportId: z.string().describe('Report ID'),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    config: z.record(z.any()).optional(),
+    schedule: z.string().optional(),
+  })),
+
+  tool('delete_report', 'Delete a saved report', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    reportId: z.string().describe('Report ID'),
+  })),
+
+  tool('execute_report', 'Execute a saved report and get results', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    reportId: z.string().describe('Report ID'),
+  })),
+
+  tool('execute_adhoc_report', 'Run an ad-hoc report without saving', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    type: z.enum(['sales', 'inventory', 'production', 'channel', 'custom']).describe('Report type'),
+    config: z.record(z.any()).describe('Report configuration'),
+  })),
+
+  tool('export_report_csv', 'Export report data as CSV', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    type: z.enum(['sales', 'inventory', 'production', 'channel', 'custom']).describe('Report type'),
+    config: z.record(z.any()).describe('Report configuration'),
+  })),
+
+  tool('export_report_pdf', 'Export report as PDF', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    type: z.enum(['sales', 'inventory', 'production', 'channel', 'custom']).describe('Report type'),
+    config: z.record(z.any()).describe('Report configuration'),
+  })),
+
+  // ---- NOTIFICATIONS ----
+  tool('create_notification_channel', 'Create a notification channel (email, slack, line, webhook)', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    type: z.enum(['email', 'slack', 'line', 'webhook']).describe('Channel type'),
+    label: z.string().describe('Display label'),
+    config: z.record(z.any()).describe('Channel configuration (webhook URL, SMTP, tokens)'),
+  })),
+
+  tool('list_notification_channels', 'List notification channels', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    type: z.string().optional().describe('Filter by type'),
+  })),
+
+  tool('create_notification_rule', 'Create a notification rule', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    name: z.string().describe('Rule name'),
+    eventType: z.string().describe('Event type (low_stock, new_order, production_complete, etc.)'),
+    conditionConfig: z.record(z.any()).optional().describe('Condition config {field, operator, value}'),
+    channelIds: z.array(z.string()).describe('Channel IDs to notify'),
+  })),
+
+  tool('list_notification_rules', 'List notification rules', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    eventType: z.string().optional().describe('Filter by event type'),
+  })),
+
+  tool('send_notification', 'Send a test notification', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    eventType: z.string().describe('Event type'),
+    message: z.string().describe('Notification message'),
+    data: z.record(z.any()).optional().describe('Additional data for condition evaluation'),
+  })),
+
+  tool('get_notification_logs', 'Get notification delivery logs', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    limit: z.number().optional().describe('Max logs to return'),
+  })),
+
+  // ---- RBAC & TEAMS ----
+  tool('create_role', 'Create a custom role with permissions', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    name: z.string().describe('Role name'),
+    description: z.string().optional(),
+    permissions: z.array(z.string()).describe('List of permission keys'),
+  })),
+
+  tool('list_roles', 'List all roles', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('update_role', 'Update a role', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    roleId: z.string().describe('Role ID'),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    permissions: z.array(z.string()).optional(),
+  })),
+
+  tool('delete_role', 'Delete a custom role', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    roleId: z.string().describe('Role ID'),
+  })),
+
+  tool('check_permission', 'Check if a user has a specific permission', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    userId: z.string().describe('User ID'),
+    permission: z.string().describe('Permission key to check'),
+  })),
+
+  tool('create_team', 'Create a team', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    name: z.string().describe('Team name'),
+    description: z.string().optional(),
+  })),
+
+  tool('list_teams', 'List all teams', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('add_team_member', 'Add a user to a team with optional role', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    teamId: z.string().describe('Team ID'),
+    userId: z.string().describe('User ID'),
+    roleId: z.string().optional().describe('Role ID for this team member'),
+  })),
+
+  tool('list_team_members', 'List team members', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    teamId: z.string().describe('Team ID'),
+  })),
+
+  tool('remove_team_member', 'Remove a user from a team', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    teamId: z.string().describe('Team ID'),
+    userId: z.string().describe('User ID'),
+  })),
+
+  tool('get_audit_logs', 'Get audit logs', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    limit: z.number().optional().describe('Max logs'),
+    offset: z.number().optional().describe('Offset'),
+  })),
 ];
 
 export function createMCPServer() {
@@ -416,7 +580,8 @@ export function createMCPServer() {
   return server;
 }
 
-export function handleToolCall(name: string, args: Record<string, any>, db: any, auth: AuthManager) {
+export async function handleToolCall(name: string, _args: Record<string, any>, db: any, auth: AuthManager) {
+  const args = _args as any;
   const { tenantId } = args;
   if (!tenantId) throw new Error('tenantId is required');
 
@@ -825,6 +990,193 @@ export function handleToolCall(name: string, args: Record<string, any>, db: any,
     case 'get_inventory_sync_status': {
       const cm = new ChannelManager();
       const result = cm.getInventorySyncStatus(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    // ---- ADVANCED REPORTS ----
+    case 'create_report': {
+      const re = new ReportEngine();
+      const result = re.createReport(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_reports': {
+      const re = new ReportEngine();
+      const result = re.listReports(tenantId, args.type);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_report': {
+      const re = new ReportEngine();
+      const result = re.getReport(args.reportId);
+      if (!result) throw new Error('Report not found');
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'update_report': {
+      const re = new ReportEngine();
+      const result = re.updateReport(args.reportId, args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'delete_report': {
+      const re = new ReportEngine();
+      re.deleteReport(args.reportId);
+      return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+    }
+
+    case 'execute_report': {
+      const re = new ReportEngine();
+      const result = re.executeReport(args.reportId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'execute_adhoc_report': {
+      const re = new ReportEngine();
+      const result = re.executeAdhocReport(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'export_report_csv': {
+      const re = new ReportEngine();
+      const data = re.executeAdhocReport(args);
+      const csv = re.exportCSV(data.breakdown || data.products || data.orders || data.listings || [data.summary]);
+      return { content: [{ type: 'text', text: csv }] };
+    }
+
+    case 'export_report_pdf': {
+      const re = new ReportEngine();
+      const data = re.executeAdhocReport(args);
+      const sections: { heading: string; content: string[] }[] = [];
+      if (data.summary) {
+        sections.push({
+          heading: 'Summary',
+          content: Object.entries(data.summary).map(([k, v]) => `${k}: ${v}`),
+        });
+      }
+      if (data.breakdown) {
+        sections.push({
+          heading: 'Breakdown',
+          content: data.breakdown.slice(0, 50).map((b: any) => JSON.stringify(b)),
+        });
+      }
+      if (data.topProducts) {
+        sections.push({
+          heading: 'Top Products',
+          content: data.topProducts.slice(0, 20).map((p: any) => `${p.name}: $${p.revenue} (${p.quantity} units)`),
+        });
+      }
+      if (data.channels) {
+        sections.push({
+          heading: 'Channel Breakdown',
+          content: data.channels.map((c: any) => `${c.channel}: $${c.revenue}`),
+        });
+      }
+      const pdfBuf = await re.exportPDF(`Report: ${args.type}`, sections);
+      return { content: [{ type: 'text', text: pdfBuf.toString('base64') }] };
+    }
+
+    // ---- NOTIFICATIONS ----
+    case 'create_notification_channel': {
+      const ne = new NotificationEngine();
+      const result = ne.createChannel(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_notification_channels': {
+      const ne = new NotificationEngine();
+      const result = ne.listChannels(tenantId, args.type);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'create_notification_rule': {
+      const ne = new NotificationEngine();
+      const result = ne.createRule(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_notification_rules': {
+      const ne = new NotificationEngine();
+      const result = ne.listRules(tenantId, args.eventType);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'send_notification': {
+      const ne = new NotificationEngine();
+      const result = ne.sendNotification(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_notification_logs': {
+      const ne = new NotificationEngine();
+      const result = ne.getLogs(tenantId, args.limit);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    // ---- RBAC & TEAMS ----
+    case 'create_role': {
+      const rbac = new RBACManager();
+      const result = rbac.createRole(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_roles': {
+      const rbac = new RBACManager();
+      const result = rbac.listRoles(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'update_role': {
+      const rbac = new RBACManager();
+      const result = rbac.updateRole(args.roleId, args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'delete_role': {
+      const rbac = new RBACManager();
+      rbac.deleteRole(args.roleId);
+      return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+    }
+
+    case 'check_permission': {
+      const rbac = new RBACManager();
+      const result = rbac.hasPermission(args.userId, args.permission);
+      return { content: [{ type: 'text', text: JSON.stringify({ hasPermission: result }, null, 2) }] };
+    }
+
+    case 'create_team': {
+      const rbac = new RBACManager();
+      const result = rbac.createTeam(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_teams': {
+      const rbac = new RBACManager();
+      const result = rbac.listTeams(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'add_team_member': {
+      const rbac = new RBACManager();
+      const result = rbac.addTeamMember(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_team_members': {
+      const rbac = new RBACManager();
+      const result = rbac.listTeamMembers(args.teamId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'remove_team_member': {
+      const rbac = new RBACManager();
+      rbac.removeTeamMember(args.teamId, args.userId);
+      return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+    }
+
+    case 'get_audit_logs': {
+      const rbac = new RBACManager();
+      const result = rbac.getAuditLogs(tenantId, args.limit, args.offset);
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     }
 
