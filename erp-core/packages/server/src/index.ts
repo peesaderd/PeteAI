@@ -4,12 +4,15 @@
 
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createRouter } from './api/routes.js';
 import { createMCPServer, handleToolCall } from './mcp/server.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { getDatabase } from './db/database.js';
 import { AuthManager } from './auth/auth.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const MODE = process.env.MODE || 'http'; // 'http' | 'stdio' | 'both'
 
@@ -30,6 +33,12 @@ async function main() {
     const app = express();
     app.use(cors());
     app.use(express.json());
+
+    // Serve static web app (from packages/web/dist)
+    // __dirname is packages/server/dist when running compiled JS
+    const webDist = path.resolve(__dirname, '../../web/dist');
+    app.use(express.static(webDist));
+
     app.use('/api', createRouter());
 
     // MCP over HTTP (for AI agents)
@@ -42,6 +51,12 @@ async function main() {
       } catch (err: any) {
         res.status(400).json({ error: err.message });
       }
+    });
+
+    // SPA fallback - serve index.html for all non-API routes
+    app.get('*', (req, res) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/mcp')) return;
+      res.sendFile(path.join(webDist, 'index.html'));
     });
 
     app.listen(PORT, '0.0.0.0', () => {
