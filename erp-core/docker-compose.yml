@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  erp-core:
+    build: .
+    ports:
+      - "54509:54509"
+    volumes:
+      - ./data:/app/data
+      - ./packages/web/dist:/app/packages/web/dist
+    environment:
+      - PORT=54509
+      - NODE_ENV=production
+    restart: unless-stopped
