@@ -13,6 +13,8 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import { getDatabase } from '../db/database.js';
 import { AuthManager } from '../auth/auth.js';
 import { EtsyAnalytics } from '../analytics/etsy.js';
+import { ProductionPlanner } from '../production/index.js';
+import { ChannelManager } from '../channels/index.js';
 
 function tool(name: string, description: string, schema: z.ZodObject<any>) {
   return { name, description, inputSchema: zodToJsonSchema(schema) };
@@ -237,6 +239,154 @@ const TOOLS = [
     startDate: z.number().optional().describe('Start date (Unix)'),
     endDate: z.number().optional().describe('End date (Unix)'),
   })),
+
+  // ---- PRODUCTION PLANNING: BOM ----
+  tool('create_bom', 'Create a Bill of Materials', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().describe('Product ID'),
+    name: z.string().describe('BOM name'),
+    description: z.string().optional().describe('BOM description'),
+    components: z.array(z.object({
+      componentProductId: z.string().describe('Component product ID'),
+      quantity: z.number().describe('Quantity needed'),
+      unitCost: z.number().optional().describe('Unit cost override'),
+      wastagePercent: z.number().optional().describe('Wastage percentage'),
+      notes: z.string().optional(),
+    })).describe('List of components'),
+    notes: z.string().optional(),
+  })),
+
+  tool('get_bom', 'Get BOM details with components', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    bomId: z.string().describe('BOM ID'),
+  })),
+
+  tool('list_boms', 'List all BOMs', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().optional().describe('Filter by product'),
+  })),
+
+  tool('update_bom', 'Update a BOM', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    bomId: z.string().describe('BOM ID'),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    isActive: z.boolean().optional(),
+    components: z.array(z.object({
+      componentProductId: z.string(),
+      quantity: z.number(),
+      unitCost: z.number().optional(),
+      wastagePercent: z.number().optional(),
+      notes: z.string().optional(),
+    })).optional(),
+  })),
+
+  // ---- PRODUCTION PLANNING: REORDER ----
+  tool('create_reorder_rule', 'Create a reorder rule for auto-stock management', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().describe('Product ID'),
+    minStockLevel: z.number().describe('Minimum stock level before reorder'),
+    maxStockLevel: z.number().describe('Maximum stock level target'),
+    reorderQuantity: z.number().describe('Quantity to reorder'),
+    leadTimeDays: z.number().describe('Lead time in days'),
+    forecastDailyDemand: z.number().optional().describe('Forecasted daily demand'),
+  })),
+
+  tool('list_reorder_rules', 'List reorder rules', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().optional(),
+  })),
+
+  tool('check_reorder_needs', 'Check which products need reordering', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('auto_schedule_production', 'Auto-generate production orders based on stock levels', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  // ---- PRODUCTION PLANNING: ORDERS ----
+  tool('create_production_order', 'Create a production order', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().describe('Product ID'),
+    bomId: z.string().optional().describe('BOM ID for material tracking'),
+    quantity: z.number().describe('Quantity to produce'),
+    priority: z.enum(['low', 'normal', 'high']).optional().describe('Priority'),
+    dueDate: z.number().optional().describe('Due date (Unix)'),
+    notes: z.string().optional(),
+  })),
+
+  tool('list_production_orders', 'List production orders', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    status: z.string().optional().describe('Filter by status'),
+    limit: z.number().optional(),
+  })),
+
+  tool('get_production_order', 'Get production order details', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    orderId: z.string().describe('Production order ID'),
+  })),
+
+  tool('update_production_status', 'Update production order status', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    orderId: z.string().describe('Production order ID'),
+    status: z.enum(['in_progress', 'completed', 'cancelled']).describe('New status'),
+  })),
+
+  tool('get_production_schedule', 'Get production schedule by week', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    startDate: z.number().optional().describe('Start date (Unix)'),
+    endDate: z.number().optional().describe('End date (Unix)'),
+  })),
+
+  // ---- MULTI-CHANNEL: CONNECTIONS ----
+  tool('create_channel_connection', 'Create a channel connection (Amazon, Shopify, etc.)', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    channelType: z.enum(['amazon', 'shopify', 'etsy', 'ebay']).describe('Channel type'),
+    label: z.string().describe('Display label'),
+    credentials: z.record(z.string()).describe('Channel credentials (API keys, tokens)'),
+    config: z.record(z.any()).optional().describe('Additional configuration'),
+  })),
+
+  tool('list_channel_connections', 'List channel connections', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    channelType: z.string().optional().describe('Filter by channel type'),
+  })),
+
+  tool('update_channel_connection', 'Update a channel connection', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    connectionId: z.string().describe('Connection ID'),
+    label: z.string().optional(),
+    credentials: z.record(z.string()).optional(),
+    isActive: z.boolean().optional(),
+  })),
+
+  tool('delete_channel_connection', 'Delete a channel connection', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    connectionId: z.string().describe('Connection ID'),
+  })),
+
+  // ---- MULTI-CHANNEL: LISTINGS ----
+  tool('create_channel_listing', 'Link a product to a channel listing', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    channelConnectionId: z.string().describe('Channel connection ID'),
+    productId: z.string().describe('Product ID'),
+    channelListingId: z.string().describe('Listing ID on the channel'),
+    channelSku: z.string().optional().describe('SKU on the channel'),
+    channelPrice: z.number().optional().describe('Price on the channel'),
+    channelQuantity: z.number().optional().describe('Quantity listed on channel'),
+    listingData: z.record(z.any()).optional().describe('Additional listing data'),
+  })),
+
+  tool('list_channel_listings', 'List channel listings', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    channelConnectionId: z.string().optional(),
+    productId: z.string().optional(),
+  })),
+
+  tool('get_inventory_sync_status', 'Check inventory sync status across channels', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
 ];
 
 export function createMCPServer() {
@@ -432,38 +582,6 @@ export function handleToolCall(name: string, args: Record<string, any>, db: any,
       return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
     }
 
-    case 'list_production_orders': {
-      const { status, limit = 50 } = args;
-      let sql = 'SELECT po.*, p.name as product_name FROM production_orders po JOIN products p ON po.product_id = p.id WHERE po.tenant_id = ?';
-      const params: any[] = [tenantId];
-      if (status) { sql += ' AND po.status = ?'; params.push(status); }
-      sql += ' ORDER BY po.created_at DESC LIMIT ?';
-      params.push(limit);
-      const orders = db.prepare(sql).all(...params);
-      return { content: [{ type: 'text', text: JSON.stringify(orders, null, 2) }] };
-    }
-
-    case 'create_production_order': {
-      const id = crypto.randomUUID();
-      const { productId, quantity, dueDate, notes } = args;
-      db.prepare(`INSERT INTO production_orders (id, tenant_id, product_id, quantity, status, due_date, notes, created_at, updated_at) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?)`)
-        .run(id, tenantId, productId, quantity, dueDate || null, notes || null, now, now);
-      const order = db.prepare('SELECT * FROM production_orders WHERE id = ?').get(id);
-      return { content: [{ type: 'text', text: JSON.stringify(order, null, 2) }] };
-    }
-
-    case 'update_production_status': {
-      const { orderId, status } = args;
-      const updates: string[] = ['status = ?', 'updated_at = ?'];
-      const params: any[] = [status, now];
-      if (status === 'in_progress') { updates.push('started_at = ?'); params.push(now); }
-      if (status === 'completed') { updates.push('completed_at = ?', 'quantity_completed = quantity'); params.push(now); }
-      params.push(orderId, tenantId);
-      db.prepare(`UPDATE production_orders SET ${updates.join(', ')} WHERE id = ? AND tenant_id = ?`).run(...params);
-      const order = db.prepare('SELECT * FROM production_orders WHERE id = ?').get(orderId);
-      return { content: [{ type: 'text', text: JSON.stringify(order, null, 2) }] };
-    }
-
     case 'get_sales_report': {
       const { period } = args;
       const periodMap: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 };
@@ -583,6 +701,130 @@ export function handleToolCall(name: string, args: Record<string, any>, db: any,
     case 'get_etsy_analytics': {
       const analytics = new EtsyAnalytics();
       const result = analytics.getEtsySpecific({ tenantId, startDate: args.startDate, endDate: args.endDate });
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    // ---- PRODUCTION PLANNING HANDLERS ----
+    case 'create_bom': {
+      const planner = new ProductionPlanner();
+      const result = planner.createBOM(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_bom': {
+      const planner = new ProductionPlanner();
+      const result = planner.getBOM(args.bomId);
+      if (!result) throw new Error('BOM not found');
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_boms': {
+      const planner = new ProductionPlanner();
+      const result = planner.listBOMs(tenantId, args.productId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'update_bom': {
+      const planner = new ProductionPlanner();
+      const result = planner.updateBOM(args.bomId, args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'create_reorder_rule': {
+      const planner = new ProductionPlanner();
+      const result = planner.createReorderRule(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_reorder_rules': {
+      const planner = new ProductionPlanner();
+      const result = planner.listReorderRules(tenantId, args.productId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'check_reorder_needs': {
+      const planner = new ProductionPlanner();
+      const result = planner.checkReorderNeeds(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'auto_schedule_production': {
+      const planner = new ProductionPlanner();
+      const result = planner.autoScheduleProduction(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'create_production_order': {
+      const planner = new ProductionPlanner();
+      const result = planner.createProductionOrder(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_production_orders': {
+      const planner = new ProductionPlanner();
+      const result = planner.listProductionOrders(tenantId, args.status, args.limit);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_production_order': {
+      const planner = new ProductionPlanner();
+      const result = planner.getProductionOrder(args.orderId);
+      if (!result) throw new Error('Production order not found');
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'update_production_status': {
+      const planner = new ProductionPlanner();
+      const result = planner.updateProductionStatus(args.orderId, args.status, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_production_schedule': {
+      const planner = new ProductionPlanner();
+      const result = planner.getProductionSchedule(tenantId, args.startDate, args.endDate);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    // ---- MULTI-CHANNEL HANDLERS ----
+    case 'create_channel_connection': {
+      const cm = new ChannelManager();
+      const result = cm.createConnection(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_channel_connections': {
+      const cm = new ChannelManager();
+      const result = cm.listConnections(tenantId, args.channelType);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'update_channel_connection': {
+      const cm = new ChannelManager();
+      const result = cm.updateConnection(args.connectionId, args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'delete_channel_connection': {
+      const cm = new ChannelManager();
+      const result = cm.deleteConnection(args.connectionId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'create_channel_listing': {
+      const cm = new ChannelManager();
+      const result = cm.createListing(args);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_channel_listings': {
+      const cm = new ChannelManager();
+      const result = cm.listListings(tenantId, args.channelConnectionId, args.productId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_inventory_sync_status': {
+      const cm = new ChannelManager();
+      const result = cm.getInventorySyncStatus(tenantId);
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     }
 

@@ -185,6 +185,133 @@ function initializeSchema(db: Database.Database) {
       quantity INTEGER NOT NULL DEFAULT 1
     );
 
+    -- ============================================================
+    -- PRODUCTION PLANNING
+    -- ============================================================
+
+    -- Bill of Materials (BOM)
+    CREATE TABLE IF NOT EXISTS boms (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      product_id TEXT NOT NULL REFERENCES products(id),
+      name TEXT NOT NULL,
+      description TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      total_cost REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- BOM Components (raw materials / sub-assemblies)
+    CREATE TABLE IF NOT EXISTS bom_components (
+      id TEXT PRIMARY KEY,
+      bom_id TEXT NOT NULL REFERENCES boms(id),
+      component_product_id TEXT NOT NULL REFERENCES products(id),
+      quantity REAL NOT NULL DEFAULT 1,
+      unit_cost REAL NOT NULL DEFAULT 0,
+      wastage_percent REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+
+    -- Production Orders (enhanced)
+    CREATE TABLE IF NOT EXISTS production_orders (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      product_id TEXT NOT NULL REFERENCES products(id),
+      bom_id TEXT REFERENCES boms(id),
+      order_number TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      quantity_completed INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'draft',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      due_date INTEGER,
+      started_at INTEGER,
+      completed_at INTEGER,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Production Order Material Usage
+    CREATE TABLE IF NOT EXISTS production_material_usage (
+      id TEXT PRIMARY KEY,
+      production_order_id TEXT NOT NULL REFERENCES production_orders(id),
+      component_product_id TEXT NOT NULL REFERENCES products(id),
+      quantity_planned REAL NOT NULL,
+      quantity_used REAL NOT NULL DEFAULT 0,
+      quantity_wasted REAL NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+
+    -- Reorder Rules
+    CREATE TABLE IF NOT EXISTS reorder_rules (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      product_id TEXT NOT NULL REFERENCES products(id),
+      min_stock_level REAL NOT NULL DEFAULT 0,
+      max_stock_level REAL NOT NULL DEFAULT 0,
+      reorder_quantity REAL NOT NULL DEFAULT 0,
+      lead_time_days INTEGER NOT NULL DEFAULT 7,
+      forecast_daily_demand REAL NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      last_triggered_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- ============================================================
+    -- MULTI-CHANNEL CONNECTORS
+    -- ============================================================
+
+    -- Channel Connections (credentials per channel)
+    CREATE TABLE IF NOT EXISTS channel_connections (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      channel_type TEXT NOT NULL,
+      label TEXT NOT NULL,
+      credentials TEXT,
+      config TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      last_sync_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Channel Listings (mapping between channel products and local products)
+    CREATE TABLE IF NOT EXISTS channel_listings (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      channel_connection_id TEXT NOT NULL REFERENCES channel_connections(id),
+      product_id TEXT NOT NULL REFERENCES products(id),
+      channel_listing_id TEXT NOT NULL,
+      channel_sku TEXT,
+      channel_price REAL,
+      channel_quantity INTEGER,
+      status TEXT NOT NULL DEFAULT 'active',
+      listing_data TEXT,
+      last_sync_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Channel Orders (synced orders from channels)
+    CREATE TABLE IF NOT EXISTS channel_orders (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      channel_connection_id TEXT NOT NULL REFERENCES channel_connections(id),
+      channel_order_id TEXT NOT NULL,
+      order_id TEXT REFERENCES orders(id),
+      channel_status TEXT NOT NULL,
+      raw_data TEXT,
+      synced_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_products_tenant ON products(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_orders_tenant ON orders(tenant_id);
@@ -192,5 +319,13 @@ function initializeSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_subscriptions_tenant ON subscriptions(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_invoices_tenant ON invoices(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_boms_tenant ON boms(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_bom_components_bom ON bom_components(bom_id);
+    CREATE INDEX IF NOT EXISTS idx_production_orders_tenant ON production_orders(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_reorder_rules_tenant ON reorder_rules(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_channel_connections_tenant ON channel_connections(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_channel_listings_tenant ON channel_listings(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_channel_listings_connection ON channel_listings(channel_connection_id);
+    CREATE INDEX IF NOT EXISTS idx_channel_orders_tenant ON channel_orders(tenant_id);
   `);
 }
