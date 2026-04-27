@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { getDatabase } from '../db/database.js';
 import { AuthManager } from '../auth/auth.js';
+import { EtsyAnalytics } from '../analytics/etsy.js';
 
 function tool(name: string, description: string, schema: z.ZodObject<any>) {
   return { name, description, inputSchema: zodToJsonSchema(schema) };
@@ -81,6 +82,7 @@ const TOOLS = [
       unitPrice: z.number().optional(),
     })).describe('Order items'),
     shippingCost: z.number().optional(),
+    channel: z.string().optional().describe('Sales channel (direct, etsy, amazon, shopify, ebay)'),
     notes: z.string().optional(),
   })),
 
@@ -197,6 +199,44 @@ const TOOLS = [
   tool('get_usage_stats', 'Get usage statistics for billing', z.object({
     tenantId: z.string().describe('Tenant ID'),
   })),
+
+  // ---- ANALYTICS ----
+  tool('get_dashboard_summary', 'Get dashboard summary metrics with period comparison', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    startDate: z.number().optional().describe('Start date (Unix)'),
+    endDate: z.number().optional().describe('End date (Unix)'),
+  })),
+
+  tool('get_product_performance', 'Get product performance analytics with profit margins', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    startDate: z.number().optional().describe('Start date (Unix)'),
+    endDate: z.number().optional().describe('End date (Unix)'),
+  })),
+
+  tool('get_sales_trends', 'Get daily sales trends', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    startDate: z.number().optional().describe('Start date (Unix)'),
+    endDate: z.number().optional().describe('End date (Unix)'),
+  })),
+
+  tool('get_channel_breakdown', 'Get sales breakdown by channel (Etsy vs direct)', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    startDate: z.number().optional().describe('Start date (Unix)'),
+    endDate: z.number().optional().describe('End date (Unix)'),
+  })),
+
+  tool('get_top_products', 'Get top performing products by revenue', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    startDate: z.number().optional().describe('Start date (Unix)'),
+    endDate: z.number().optional().describe('End date (Unix)'),
+    limit: z.number().optional().describe('Number of products'),
+  })),
+
+  tool('get_etsy_analytics', 'Get Etsy-specific analytics', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    startDate: z.number().optional().describe('Start date (Unix)'),
+    endDate: z.number().optional().describe('End date (Unix)'),
+  })),
 ];
 
 export function createMCPServer() {
@@ -299,7 +339,7 @@ export function handleToolCall(name: string, args: Record<string, any>, db: any,
     case 'create_order': {
       const id = crypto.randomUUID();
       const orderNumber = `ORD-${Date.now()}`;
-      const { customerName, customerEmail, items, shippingCost = 0, notes } = args;
+      const { customerName, customerEmail, items, shippingCost = 0, notes, channel = 'direct' } = args;
       let subtotal = 0;
       const itemData: any[] = [];
       for (const item of items) {
@@ -310,8 +350,8 @@ export function handleToolCall(name: string, args: Record<string, any>, db: any,
         itemData.push({ ...item, product });
       }
       const total = subtotal + shippingCost;
-      db.prepare(`INSERT INTO orders (id, tenant_id, order_number, status, customer_name, customer_email, subtotal, shipping_cost, total, notes, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(id, tenantId, orderNumber, customerName, customerEmail || null, subtotal, shippingCost, total, notes || null, now, now);
+      db.prepare(`INSERT INTO orders (id, tenant_id, order_number, status, customer_name, customer_email, subtotal, shipping_cost, total, channel, notes, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, tenantId, orderNumber, customerName, customerEmail || null, subtotal, shippingCost, total, channel, notes || null, now, now);
       const insertItem = db.prepare(`INSERT INTO order_items (id, order_id, product_id, name, sku, quantity, unit_price, total_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
       for (const item of itemData) {
         const product = item.product;
@@ -507,6 +547,43 @@ export function handleToolCall(name: string, args: Record<string, any>, db: any,
       const customerCount = db.prepare('SELECT COUNT(*) as count FROM customers WHERE tenant_id = ?').get(tenantId) as any;
       const storageSize = db.prepare('SELECT COUNT(*) as count FROM kb_documents WHERE tenant_id = ?').get(tenantId) as any;
       return { content: [{ type: 'text', text: JSON.stringify({ orders: orderCount.count, products: productCount.count, customers: customerCount.count, documents: storageSize.count }, null, 2) }] };
+    }
+
+    // ---- ANALYTICS HANDLERS ----
+    case 'get_dashboard_summary': {
+      const analytics = new EtsyAnalytics();
+      const result = analytics.getDashboardSummary({ tenantId, startDate: args.startDate, endDate: args.endDate });
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_product_performance': {
+      const analytics = new EtsyAnalytics();
+      const result = analytics.getProductPerformance({ tenantId, startDate: args.startDate, endDate: args.endDate });
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_sales_trends': {
+      const analytics = new EtsyAnalytics();
+      const result = analytics.getSalesTrends({ tenantId, startDate: args.startDate, endDate: args.endDate });
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_channel_breakdown': {
+      const analytics = new EtsyAnalytics();
+      const result = analytics.getChannelBreakdown({ tenantId, startDate: args.startDate, endDate: args.endDate });
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_top_products': {
+      const analytics = new EtsyAnalytics();
+      const result = analytics.getTopProducts({ tenantId, startDate: args.startDate, endDate: args.endDate, limit: args.limit });
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_etsy_analytics': {
+      const analytics = new EtsyAnalytics();
+      const result = analytics.getEtsySpecific({ tenantId, startDate: args.startDate, endDate: args.endDate });
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     }
 
     default:

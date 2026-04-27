@@ -89,6 +89,7 @@ function initializeSchema(db: Database.Database) {
       subtotal REAL NOT NULL DEFAULT 0,
       shipping_cost REAL NOT NULL DEFAULT 0,
       total REAL NOT NULL DEFAULT 0,
+      channel TEXT NOT NULL DEFAULT 'direct',
       notes TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
