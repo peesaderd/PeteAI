@@ -1,0 +1,54 @@
+import { Router, Request, Response } from 'express';
+import { getDatabase } from '../db/database.js';
+import { AuthManager } from '../auth/auth.js';
+import { TenantManager } from '../tenants/manager.js';
+import { handleToolCall } from '../mcp/server.js';
+
+export function createRouter() {
+  const router = Router();
+  const auth = new AuthManager();
+  const tenants = new TenantManager();
+
+  router.get('/health', (_req: Request, res: Response) => {
+    res.json({ status: 'ok', timestamp: Date.now() });
+  });
+
+  router.post('/auth/register', async (req: Request, res: Response) => {
+    try {
+      const { tenantName, tenantSlug, email, name, password } = req.body;
+      if (!tenantName || !tenantSlug || !email || !name || !password) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      const tenant = tenants.create(tenantName, tenantSlug);
+      const user = await auth.register(tenant.id, email, name, password, 'admin');
+      res.json({ tenant, user });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.post('/auth/login', async (req: Request, res: Response) => {
+    try {
+      const { email, password } = req.body;
+      const result = await auth.login(email, password);
+      if (!result) return res.status(401).json({ error: 'Invalid credentials' });
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.post('/mcp', async (req: Request, res: Response) => {
+    try {
+      const { tool, args } = req.body;
+      if (!tool || !args) return res.status(400).json({ error: 'tool and args required' });
+      const db = getDatabase();
+      const result = await handleToolCall(tool, args, db, auth);
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  return router;
+}

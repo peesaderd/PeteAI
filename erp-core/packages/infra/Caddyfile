@@ -1,0 +1,15 @@
+your-domain.com {
+    reverse_proxy /api/* erp-core:3000
+    reverse_proxy /mcp erp-core:3000
+
+    reverse_proxy /kb/* knowledge-base:3100
+    reverse_proxy /api/collections* knowledge-base:3100
+    reverse_proxy /api/documents* knowledge-base:3100
+    reverse_proxy /api/search* knowledge-base:3100
+    reverse_proxy /api/graph* knowledge-base:3100
+    reverse_proxy /api/stats* knowledge-base:3100
+    reverse_proxy /api/export* knowledge-base:3100
+
+    # KB web UI
+    reverse_proxy / knowledge-base:3100
+}

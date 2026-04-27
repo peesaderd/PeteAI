@@ -1,0 +1,21 @@
+{
+  "name": "erp-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant ERP Core with Marketplace Connectors & Knowledge Base",
+  "type": "module",
+  "workspaces": [
+    "packages/server",
+    "packages/web",
+    "packages/connectors/*",
+    "packages/knowledge-base"
+  ],
+  "scripts": {
+    "build": "npm run build -w packages/server && npm run build -w packages/knowledge-base",
+    "dev:server": "npm run dev -w packages/server",
+    "dev:kb": "npm run dev -w packages/knowledge-base",
+    "dev:web": "npm run dev -w packages/web",
+    "start:server": "npm run start -w packages/server",
+    "start:kb": "npm run start -w packages/knowledge-base"
+  }
+}

@@ -1,0 +1,515 @@
+// ============================================================
+// ERP Core - MCP Server (Main)
+// ============================================================
+
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import { getDatabase } from '../db/database.js';
+import { AuthManager } from '../auth/auth.js';
+
+function tool(name: string, description: string, schema: z.ZodObject<any>) {
+  return { name, description, inputSchema: zodToJsonSchema(schema) };
+}
+
+const TOOLS = [
+  // ---- PRODUCTS ----
+  tool('list_products', 'List all products', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    categoryId: z.string().optional().describe('Filter by category'),
+    status: z.enum(['active', 'draft', 'archived']).optional().describe('Filter by status'),
+    search: z.string().optional().describe('Search by name or SKU'),
+    limit: z.number().optional().describe('Max results'),
+    offset: z.number().optional().describe('Offset for pagination'),
+  })),
+
+  tool('get_product', 'Get product details', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().describe('Product ID'),
+  })),
+
+  tool('create_product', 'Create a new product', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    name: z.string().describe('Product name'),
+    description: z.string().optional().describe('Product description'),
+    sku: z.string().optional().describe('SKU'),
+    price: z.number().describe('Price'),
+    costPrice: z.number().optional().describe('Cost price'),
+    quantity: z.number().optional().describe('Initial quantity'),
+    categoryId: z.string().optional().describe('Category ID'),
+    tags: z.array(z.string()).optional().describe('Tags'),
+    weight: z.number().optional().describe('Weight'),
+  })),
+
+  tool('update_product', 'Update a product', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().describe('Product ID'),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    price: z.number().optional(),
+    quantity: z.number().optional(),
+    status: z.enum(['active', 'draft', 'archived']).optional(),
+  })),
+
+  // ---- SALES / ORDERS ----
+  tool('list_orders', 'List orders', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    status: z.string().optional().describe('Filter by status'),
+    startDate: z.number().optional().describe('Start date (Unix)'),
+    endDate: z.number().optional().describe('End date (Unix)'),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool('get_order', 'Get order details', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    orderId: z.string().describe('Order ID'),
+  })),
+
+  tool('create_order', 'Create a manual order', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    customerName: z.string().describe('Customer name'),
+    customerEmail: z.string().optional(),
+    items: z.array(z.object({
+      productId: z.string(),
+      quantity: z.number(),
+      unitPrice: z.number().optional(),
+    })).describe('Order items'),
+    shippingCost: z.number().optional(),
+    notes: z.string().optional(),
+  })),
+
+  // ---- INVENTORY ----
+  tool('get_inventory', 'Get inventory status', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    lowStockOnly: z.boolean().optional().describe('Show only low stock items'),
+    threshold: z.number().optional().describe('Low stock threshold'),
+  })),
+
+  tool('adjust_inventory', 'Adjust inventory quantity', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().describe('Product ID'),
+    quantity: z.number().describe('Quantity to add (positive) or remove (negative)'),
+    reason: z.string().optional().describe('Reason for adjustment'),
+  })),
+
+  // ---- CRM / CUSTOMERS ----
+  tool('list_customers', 'List customers', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    search: z.string().optional(),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool('get_customer', 'Get customer details', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    customerId: z.string().describe('Customer ID'),
+  })),
+
+  tool('get_customer_insights', 'Get customer analytics', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  // ---- FINANCE ----
+  tool('get_finance_summary', 'Get finance summary', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    startDate: z.number().optional(),
+    endDate: z.number().optional(),
+  })),
+
+  tool('list_transactions', 'List finance transactions', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    type: z.string().optional(),
+    category: z.string().optional(),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  // ---- PRODUCTION ----
+  tool('list_production_orders', 'List production orders', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    status: z.string().optional(),
+    limit: z.number().optional(),
+  })),
+
+  tool('create_production_order', 'Create a production order', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().describe('Product ID'),
+    quantity: z.number().describe('Quantity to produce'),
+    dueDate: z.number().optional().describe('Due date (Unix)'),
+    notes: z.string().optional(),
+  })),
+
+  tool('update_production_status', 'Update production order status', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    orderId: z.string().describe('Production order ID'),
+    status: z.enum(['in_progress', 'completed', 'cancelled']).describe('New status'),
+  })),
+
+  // ---- REPORTS ----
+  tool('get_sales_report', 'Get sales report', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    period: z.enum(['7d', '30d', '90d', '1y']).describe('Report period'),
+  })),
+
+  tool('get_inventory_report', 'Get inventory valuation report', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  // ---- KNOWLEDGE BASE ----
+  tool('list_kb_collections', 'List knowledge base collections', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('list_kb_documents', 'List knowledge base documents', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    collectionId: z.string().optional(),
+    search: z.string().optional(),
+  })),
+
+  tool('get_kb_document', 'Get knowledge base document', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    documentId: z.string().describe('Document ID'),
+  })),
+
+  tool('create_kb_document', 'Create a knowledge base document', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    collectionId: z.string().describe('Collection ID'),
+    title: z.string().describe('Document title'),
+    content: z.string().describe('Markdown content'),
+    tags: z.array(z.string()).optional(),
+  })),
+
+  // ---- TENANT / BILLING ----
+  tool('get_tenant_info', 'Get tenant/organization info', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('get_subscription', 'Get current subscription details', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('get_usage_stats', 'Get usage statistics for billing', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+];
+
+export function createMCPServer() {
+  const server = new Server(
+    { name: 'erp-core', version: '0.1.0' },
+    { capabilities: { tools: {} } },
+  );
+
+  const db = getDatabase();
+  const auth = new AuthManager();
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: TOOLS,
+  }));
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    try {
+      return await handleToolCall(name, args as Record<string, any>, db, auth);
+    } catch (error: any) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ error: true, message: error.message }, null, 2) }],
+      };
+    }
+  });
+
+  return server;
+}
+
+export function handleToolCall(name: string, args: Record<string, any>, db: any, auth: AuthManager) {
+  const { tenantId } = args;
+  if (!tenantId) throw new Error('tenantId is required');
+
+  const now = Math.floor(Date.now() / 1000);
+
+  switch (name) {
+    case 'list_products': {
+      const { categoryId, status, search, limit = 50, offset = 0 } = args;
+      let sql = 'SELECT * FROM products WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (categoryId) { sql += ' AND category_id = ?'; params.push(categoryId); }
+      if (status) { sql += ' AND status = ?'; params.push(status); }
+      if (search) { sql += ' AND (name LIKE ? OR sku LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
+      sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const products = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(products, null, 2) }] };
+    }
+
+    case 'get_product': {
+      const product = db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').get(args.productId, tenantId);
+      if (!product) throw new Error('Product not found');
+      return { content: [{ type: 'text', text: JSON.stringify(product, null, 2) }] };
+    }
+
+    case 'create_product': {
+      const id = crypto.randomUUID();
+      const { name, description, sku, price, costPrice, quantity = 0, categoryId, tags, weight } = args;
+      db.prepare(`INSERT INTO products (id, tenant_id, name, description, sku, price, cost_price, quantity, category_id, tags, weight, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, tenantId, name, description || null, sku || null, price, costPrice || 0, quantity, categoryId || null, JSON.stringify(tags || []), weight || null, now, now);
+      const product = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
+      return { content: [{ type: 'text', text: JSON.stringify(product, null, 2) }] };
+    }
+
+    case 'update_product': {
+      const { productId, ...fields } = args;
+      const updates: string[] = [];
+      const params: any[] = [];
+      ['name', 'description', 'price', 'quantity', 'status'].forEach(f => {
+        if (fields[f] !== undefined) { updates.push(`${f} = ?`); params.push(fields[f]); }
+      });
+      if (updates.length === 0) throw new Error('No fields to update');
+      updates.push('updated_at = ?'); params.push(now);
+      params.push(productId, tenantId);
+      db.prepare(`UPDATE products SET ${updates.join(', ')} WHERE id = ? AND tenant_id = ?`).run(...params);
+      const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
+      return { content: [{ type: 'text', text: JSON.stringify(product, null, 2) }] };
+    }
+
+    case 'list_orders': {
+      const { status, startDate, endDate, limit = 50, offset = 0 } = args;
+      let sql = 'SELECT * FROM orders WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (status) { sql += ' AND status = ?'; params.push(status); }
+      if (startDate) { sql += ' AND created_at >= ?'; params.push(startDate); }
+      if (endDate) { sql += ' AND created_at <= ?'; params.push(endDate); }
+      sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const orders = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(orders, null, 2) }] };
+    }
+
+    case 'get_order': {
+      const order = db.prepare('SELECT * FROM orders WHERE id = ? AND tenant_id = ?').get(args.orderId, tenantId) as any;
+      if (!order) throw new Error('Order not found');
+      const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
+      return { content: [{ type: 'text', text: JSON.stringify({ ...order, items }, null, 2) }] };
+    }
+
+    case 'create_order': {
+      const id = crypto.randomUUID();
+      const orderNumber = `ORD-${Date.now()}`;
+      const { customerName, customerEmail, items, shippingCost = 0, notes } = args;
+      let subtotal = 0;
+      const itemData: any[] = [];
+      for (const item of items) {
+        const product = db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').get(item.productId, tenantId) as any;
+        if (!product) throw new Error(`Product ${item.productId} not found`);
+        const price = item.unitPrice || product.price;
+        subtotal += price * item.quantity;
+        itemData.push({ ...item, product });
+      }
+      const total = subtotal + shippingCost;
+      db.prepare(`INSERT INTO orders (id, tenant_id, order_number, status, customer_name, customer_email, subtotal, shipping_cost, total, notes, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, tenantId, orderNumber, customerName, customerEmail || null, subtotal, shippingCost, total, notes || null, now, now);
+      const insertItem = db.prepare(`INSERT INTO order_items (id, order_id, product_id, name, sku, quantity, unit_price, total_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+      for (const item of itemData) {
+        const product = item.product;
+        const price = item.unitPrice || product.price;
+        insertItem.run(crypto.randomUUID(), id, item.productId, product.name, product.sku, item.quantity, price, price * item.quantity);
+        db.prepare('UPDATE products SET quantity = quantity - ? WHERE id = ?').run(item.quantity, item.productId);
+      }
+      const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+      return { content: [{ type: 'text', text: JSON.stringify(order, null, 2) }] };
+    }
+
+    case 'get_inventory': {
+      const { lowStockOnly, threshold = 5 } = args;
+      let sql = 'SELECT id, name, sku, quantity, low_stock_threshold, price, cost_price, status FROM products WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (lowStockOnly) sql += ' AND quantity <= low_stock_threshold AND status = "active"';
+      const products = db.prepare(sql).all(...params) as any[];
+      const totalValue = products.reduce((sum: number, p: any) => sum + (p.quantity * (p.cost_price || 0)), 0);
+      return { content: [{ type: 'text', text: JSON.stringify({ totalProducts: products.length, totalValue, lowStockCount: lowStockOnly ? products.length : products.filter((p: any) => p.quantity <= p.low_stock_threshold).length, products }, null, 2) }] };
+    }
+
+    case 'adjust_inventory': {
+      const { productId, quantity, reason } = args;
+      const product = db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').get(productId, tenantId) as any;
+      if (!product) throw new Error('Product not found');
+      db.prepare('UPDATE products SET quantity = quantity + ?, updated_at = ? WHERE id = ?').run(quantity, now, productId);
+      db.prepare(`INSERT INTO inventory_transactions (id, tenant_id, product_id, type, quantity, reference_type, notes, created_at) VALUES (?, ?, ?, 'adjustment', ?, 'manual', ?, ?)`)
+        .run(crypto.randomUUID(), tenantId, productId, quantity, reason || null, now);
+      const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
+      return { content: [{ type: 'text', text: JSON.stringify(updated, null, 2) }] };
+    }
+
+    case 'list_customers': {
+      const { search, limit = 50, offset = 0 } = args;
+      let sql = 'SELECT * FROM customers WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (search) { sql += ' AND (name LIKE ? OR email LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
+      sql += ' ORDER BY total_spent DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const customers = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(customers, null, 2) }] };
+    }
+
+    case 'get_customer': {
+      const customer = db.prepare('SELECT * FROM customers WHERE id = ? AND tenant_id = ?').get(args.customerId, tenantId);
+      if (!customer) throw new Error('Customer not found');
+      const orders = db.prepare('SELECT * FROM orders WHERE customer_id = ? ORDER BY created_at DESC LIMIT 20').all(args.customerId);
+      return { content: [{ type: 'text', text: JSON.stringify({ ...customer, recentOrders: orders }, null, 2) }] };
+    }
+
+    case 'get_customer_insights': {
+      const total = db.prepare('SELECT COUNT(*) as count, SUM(total_spent) as revenue FROM customers WHERE tenant_id = ?').get(tenantId) as any;
+      const repeatRate = db.prepare('SELECT COUNT(*) as count FROM customers WHERE tenant_id = ? AND total_orders > 1').get(tenantId) as any;
+      const totalCustomers = db.prepare('SELECT COUNT(*) as count FROM customers WHERE tenant_id = ?').get(tenantId) as any;
+      return { content: [{ type: 'text', text: JSON.stringify({ totalCustomers: totalCustomers.count, totalRevenue: total.revenue || 0, repeatCustomers: repeatRate.count, repeatRate: totalCustomers.count > 0 ? Math.round((repeatRate.count / totalCustomers.count) * 100) : 0 }, null, 2) }] };
+    }
+
+    case 'get_finance_summary': {
+      const { startDate, endDate } = args;
+      let sql = 'SELECT SUM(total) as revenue, COUNT(*) as orders FROM orders WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (startDate) { sql += ' AND created_at >= ?'; params.push(startDate); }
+      if (endDate) { sql += ' AND created_at <= ?'; params.push(endDate); }
+      const summary = db.prepare(sql).get(...params) as any;
+      const transactions = db.prepare('SELECT type, SUM(amount) as total FROM finance_transactions WHERE tenant_id = ? GROUP BY type').all(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify({ revenue: summary.revenue || 0, totalOrders: summary.orders || 0, transactions }, null, 2) }] };
+    }
+
+    case 'list_transactions': {
+      const { type, category, limit = 50, offset = 0 } = args;
+      let sql = 'SELECT * FROM finance_transactions WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (type) { sql += ' AND type = ?'; params.push(type); }
+      if (category) { sql += ' AND category = ?'; params.push(category); }
+      sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const results = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+    }
+
+    case 'list_production_orders': {
+      const { status, limit = 50 } = args;
+      let sql = 'SELECT po.*, p.name as product_name FROM production_orders po JOIN products p ON po.product_id = p.id WHERE po.tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (status) { sql += ' AND po.status = ?'; params.push(status); }
+      sql += ' ORDER BY po.created_at DESC LIMIT ?';
+      params.push(limit);
+      const orders = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(orders, null, 2) }] };
+    }
+
+    case 'create_production_order': {
+      const id = crypto.randomUUID();
+      const { productId, quantity, dueDate, notes } = args;
+      db.prepare(`INSERT INTO production_orders (id, tenant_id, product_id, quantity, status, due_date, notes, created_at, updated_at) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?)`)
+        .run(id, tenantId, productId, quantity, dueDate || null, notes || null, now, now);
+      const order = db.prepare('SELECT * FROM production_orders WHERE id = ?').get(id);
+      return { content: [{ type: 'text', text: JSON.stringify(order, null, 2) }] };
+    }
+
+    case 'update_production_status': {
+      const { orderId, status } = args;
+      const updates: string[] = ['status = ?', 'updated_at = ?'];
+      const params: any[] = [status, now];
+      if (status === 'in_progress') { updates.push('started_at = ?'); params.push(now); }
+      if (status === 'completed') { updates.push('completed_at = ?', 'quantity_completed = quantity'); params.push(now); }
+      params.push(orderId, tenantId);
+      db.prepare(`UPDATE production_orders SET ${updates.join(', ')} WHERE id = ? AND tenant_id = ?`).run(...params);
+      const order = db.prepare('SELECT * FROM production_orders WHERE id = ?').get(orderId);
+      return { content: [{ type: 'text', text: JSON.stringify(order, null, 2) }] };
+    }
+
+    case 'get_sales_report': {
+      const { period } = args;
+      const periodMap: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 };
+      const days = periodMap[period] || 30;
+      const startDate = now - days * 86400;
+      const orders = db.prepare('SELECT * FROM orders WHERE tenant_id = ? AND created_at >= ? ORDER BY created_at ASC').all(tenantId, startDate) as any[];
+      const dailyMap = new Map<string, { revenue: number; orders: number }>();
+      orders.forEach((o: any) => {
+        const date = new Date(o.created_at * 1000).toISOString().split('T')[0];
+        const existing = dailyMap.get(date) || { revenue: 0, orders: 0 };
+        existing.revenue += o.total;
+        existing.orders += 1;
+        dailyMap.set(date, existing);
+      });
+      const totalRevenue = orders.reduce((s: number, o: any) => s + o.total, 0);
+      const totalOrders = orders.length;
+      return { content: [{ type: 'text', text: JSON.stringify({ period, totalRevenue, totalOrders, averageOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0, dailyBreakdown: Array.from(dailyMap.entries()).map(([date, data]) => ({ date, ...data })) }, null, 2) }] };
+    }
+
+    case 'get_inventory_report': {
+      const products = db.prepare('SELECT id, name, sku, quantity, cost_price, price, (quantity * cost_price) as total_value FROM products WHERE tenant_id = ?').all(tenantId) as any[];
+      const totalValue = products.reduce((s: number, p: any) => s + (p.total_value || 0), 0);
+      const totalPotential = products.reduce((s: number, p: any) => s + (p.quantity * p.price), 0);
+      return { content: [{ type: 'text', text: JSON.stringify({ totalProducts: products.length, totalCostValue: totalValue, totalPotentialRevenue: totalPotential, products }, null, 2) }] };
+    }
+
+    case 'list_kb_collections': {
+      const collections = db.prepare('SELECT * FROM kb_collections WHERE tenant_id = ? ORDER BY sort_order').all(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(collections, null, 2) }] };
+    }
+
+    case 'list_kb_documents': {
+      const { collectionId, search } = args;
+      let sql = 'SELECT id, collection_id, title, tags, is_published, created_at, updated_at FROM kb_documents WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (collectionId) { sql += ' AND collection_id = ?'; params.push(collectionId); }
+      if (search) { sql += ' AND (title LIKE ? OR content LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
+      sql += ' ORDER BY updated_at DESC';
+      const docs = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(docs, null, 2) }] };
+    }
+
+    case 'get_kb_document': {
+      const doc = db.prepare('SELECT * FROM kb_documents WHERE id = ? AND tenant_id = ?').get(args.documentId, tenantId);
+      if (!doc) throw new Error('Document not found');
+      return { content: [{ type: 'text', text: JSON.stringify(doc, null, 2) }] };
+    }
+
+    case 'create_kb_document': {
+      const id = crypto.randomUUID();
+      const { collectionId, title, content, tags } = args;
+      const contentHtml = content
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/\n/g, '<br>');
+      db.prepare(`INSERT INTO kb_documents (id, tenant_id, collection_id, title, content, content_html, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, tenantId, collectionId, title, content, contentHtml, JSON.stringify(tags || []), now, now);
+      const doc = db.prepare('SELECT * FROM kb_documents WHERE id = ?').get(id);
+      return { content: [{ type: 'text', text: JSON.stringify(doc, null, 2) }] };
+    }
+
+    case 'get_tenant_info': {
+      const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+      if (!tenant) throw new Error('Tenant not found');
+      const users = db.prepare('SELECT id, email, name, role FROM users WHERE tenant_id = ?').all(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify({ ...tenant, users }, null, 2) }] };
+    }
+
+    case 'get_subscription': {
+      const sub = db.prepare('SELECT * FROM subscriptions WHERE tenant_id = ? AND status = "active"').get(tenantId);
+      if (!sub) return { content: [{ type: 'text', text: JSON.stringify({ plan: 'free', status: 'no_active_subscription' }, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(sub, null, 2) }] };
+    }
+
+    case 'get_usage_stats': {
+      const orderCount = db.prepare('SELECT COUNT(*) as count FROM orders WHERE tenant_id = ?').get(tenantId) as any;
+      const productCount = db.prepare('SELECT COUNT(*) as count FROM products WHERE tenant_id = ?').get(tenantId) as any;
+      const customerCount = db.prepare('SELECT COUNT(*) as count FROM customers WHERE tenant_id = ?').get(tenantId) as any;
+      const storageSize = db.prepare('SELECT COUNT(*) as count FROM kb_documents WHERE tenant_id = ?').get(tenantId) as any;
+      return { content: [{ type: 'text', text: JSON.stringify({ orders: orderCount.count, products: productCount.count, customers: customerCount.count, documents: storageSize.count }, null, 2) }] };
+    }
+
+    default:
+      throw new Error(`Unknown tool: ${name}`);
+  }
+}

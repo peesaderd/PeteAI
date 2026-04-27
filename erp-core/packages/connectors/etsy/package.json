@@ -1,0 +1,21 @@
+{
+  "name": "@erp/connector-etsy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Etsy Marketplace Connector for ERP Core",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.8.0",
+    "zod": "^3.24.0",
+    "zod-to-json-schema": "^3.24.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}
