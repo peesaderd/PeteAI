@@ -1,0 +1,8 @@
+[core]
+editor = "vim"
+
+[mcp]
+stdio_servers = [
+  {name = "jira", command = "/openhands/micromamba/envs/openhands/bin/mcp-jira-server", args = [], env = {JIRA_URL = "https://peteaim2igen.atlassian.net", JIRA_USER = "peteai.m2igen@gmail.com", JIRA_TOKEN = "<your-jira-token>"},
+  {name = "task-manager", command = "/openhands/micromamba/envs/openhands/bin/python3", args = ["/workspace/mcp-task-manager/server.py"], env = {TASK_MANAGER_DATA_DIR = "/workspace/.task-manager"}}
+]

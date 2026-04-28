@@ -1,0 +1,15 @@
+# Task Manager data (auto-generated, persists across sessions)
+.task-manager/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
