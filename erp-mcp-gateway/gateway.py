@@ -441,6 +441,22 @@ def create_rest_app(registry: ServiceRegistry, router: ToolRouter):
 
     @app.post("/mcp")
     def handle_mcp(req: ToolCallRequest):
+        # Handle gateway's own tools locally to avoid self-call loop
+        local_tools = {
+            "list_available_tools": list_available_tools,
+            "list_services": list_services,
+            "sync_registry": sync_registry,
+            "register_service": lambda name, url="", service_type="tool", tools="", status="live": register_service(name, url, service_type, tools, status),
+            "unregister_service": unregister_service,
+            "check_service_health": check_service_health,
+            "call_tool": call_tool,
+        }
+        if req.tool in local_tools:
+            try:
+                result = local_tools[req.tool](**req.args)
+                return {"status": "ok", "result": result}
+            except Exception as e:
+                raise HTTPException(400, {"status": "error", "error": str(e)})
         result = router.route_tool_call(req.tool, req.args)
         if result.get("status") == "error":
             raise HTTPException(400, result)
