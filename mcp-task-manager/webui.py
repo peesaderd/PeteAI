@@ -12,12 +12,69 @@ from pathlib import Path
 from datetime import datetime
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 import uvicorn
 
 DATA_DIR = Path(os.environ.get("TASK_MANAGER_DATA_DIR", "/workspace/.task-manager"))
 
 app = FastAPI(title="Task Manager UI")
+
+
+# ─── MCP HTTP Endpoint (for ERP MCP Gateway) ─────────────────────────
+
+class ToolCallRequest(BaseModel):
+    tool: str
+    args: dict = {}
+
+
+# Import tool functions from server.py
+import importlib.util
+_server_path = Path(__file__).parent / "server.py"
+_spec = importlib.util.spec_from_file_location("task_manager_server", _server_path)
+_tm_server = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_tm_server)
+
+# Map tool names to functions
+TOOL_FUNCTIONS = {
+    "create_project": _tm_server.create_project,
+    "list_projects": _tm_server.list_projects,
+    "update_project_status": _tm_server.update_project_status,
+    "create_task": _tm_server.create_task,
+    "update_task_status": _tm_server.update_task_status,
+    "list_tasks": _tm_server.list_tasks,
+    "get_task_details": _tm_server.get_task_details,
+    "enqueue_task": _tm_server.enqueue_task,
+    "start_next_task": _tm_server.start_next_task,
+    "complete_current_task": _tm_server.complete_current_task,
+    "show_queue_status": _tm_server.show_queue_status,
+    "get_activity_log": _tm_server.get_activity_log,
+    "get_summary": _tm_server.get_summary,
+}
+
+
+@app.post("/mcp")
+async def handle_mcp(req: ToolCallRequest):
+    """MCP endpoint for ERP MCP Gateway to route tool calls."""
+    func = TOOL_FUNCTIONS.get(req.tool)
+    if not func:
+        return JSONResponse(
+            status_code=404,
+            content={"status": "error", "error": f"Unknown tool: {req.tool}"}
+        )
+    try:
+        result = func(**req.args)
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "error": str(e)}
+        )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "task-manager", "timestamp": datetime.now().isoformat()}
 
 
 def _load_json(path: Path) -> dict:

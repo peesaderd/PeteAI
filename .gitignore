@@ -1,15 +1,8 @@
-# Task Manager data (auto-generated, persists across sessions)
-.task-manager/
-
-# Python cache
+node_modules/
 __pycache__/
 *.pyc
-*.pyo
-
-# Environment
 .env
-*.env
-
-# OS
-.DS_Store
-Thumbs.db
+.browser_screenshots/
+.vscode/
+state.json
+.task-manager/

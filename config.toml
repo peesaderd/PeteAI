@@ -3,6 +3,15 @@ editor = "vim"
 
 [mcp]
 stdio_servers = [
-  {name = "jira", command = "/openhands/micromamba/envs/openhands/bin/mcp-jira-server", args = [], env = {JIRA_URL = "https://peteaim2igen.atlassian.net", JIRA_USER = "peteai.m2igen@gmail.com", JIRA_TOKEN = "<your-jira-token>"},
-  {name = "task-manager", command = "/openhands/micromamba/envs/openhands/bin/python3", args = ["/workspace/mcp-task-manager/server.py"], env = {TASK_MANAGER_DATA_DIR = "/workspace/.task-manager"}}
+  {name = "jira", command = "/openhands/micromamba/envs/openhands/bin/mcp-jira-server", args = [], env = {JIRA_URL = "https://peteaim2igen.atlassian.net", JIRA_USER = "peteai.m2igen@gmail.com", JIRA_TOKEN = "<your-jira-token>"}
 ]
+
+[mcp.servers]
+  [mcp.servers.erp-gateway]
+    command = "/openhands/micromamba/envs/openhands/bin/python3"
+    args = ["/workspace/erp-mcp-gateway/gateway.py"]
+    env = {
+      ERP_CORE_URL = "http://89.167.82.205:54509",
+      TASK_MANAGER_URL = "http://89.167.82.205:8081",
+      GATEWAY_DATA_DIR = "/workspace/.erp-gateway"
+    }
