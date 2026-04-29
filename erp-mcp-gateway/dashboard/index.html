@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Control Center</title>
+<style>
+:root {
+  --bg: #0b0d14; --surface: #141720; --surface2: #1e2233; --surface3: #282d42;
+  --border: #2e3550; --text: #e2e6f0; --text2: #8890a8;
+  --green: #22c55e; --emerald: #10b981; --yellow: #eab308; --red: #ef4444;
+  --blue: #3b82f6; --purple: #8b5cf6; --cyan: #06b6d4; --orange: #f97316;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg); color: var(--text); min-height: 100vh;
+}
+.app { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 220px; flex-shrink: 0; background: var(--surface);
+  border-right: 1px solid var(--border); padding: 20px 0;
+  display: flex; flex-direction: column;
+}
+.sidebar .logo { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.sidebar .logo h1 { font-size: 16px; font-weight: 700; }
+.sidebar .logo .sub { font-size: 11px; color: var(--text2); margin-top: 2px; }
+.sidebar nav { flex: 1; }
+.sidebar nav a {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 20px; font-size: 13px; font-weight: 500;
+  color: var(--text2); text-decoration: none; transition: all 0.15s;
+  border-left: 3px solid transparent; cursor: pointer;
+}
+.sidebar nav a:hover { color: var(--text); background: var(--surface2); }
+.sidebar nav a.active { color: var(--text); background: var(--surface2); border-left-color: var(--blue); }
+.sidebar .status-bar {
+  padding: 12px 20px; border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 6px;
+}
+.sidebar .status-bar .dot { width: 6px; height: 6px; border-radius: 50%; }
+.sidebar .status-bar .dot.online { background: var(--green); }
+.main { flex: 1; padding: 24px; overflow-y: auto; max-width: 1400px; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 24px; gap: 16px;
+}
+.topbar .page-title h2 { font-size: 22px; font-weight: 700; }
+.topbar .page-title p { font-size: 13px; color: var(--text2); margin-top: 2px; }
+.search-box {
+  display: flex; align-items: center; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 0 12px;
+  width: 260px; transition: border-color 0.2s; cursor: pointer;
+}
+.search-box:hover { border-color: var(--text2); }
+.search-box .icon { color: var(--text2); font-size: 14px; }
+.search-box .placeholder { flex: 1; padding: 8px 8px; font-size: 13px; color: var(--text2); }
+.stats-row {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px; margin-bottom: 24px;
+}
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px 18px;
+}
+.stat-card .label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-card .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+.stat-card .sub { font-size: 11px; color: var(--text2); margin-top: 2px; }
+.dashboard-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;
+}
+@media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr; } }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
+}
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+}
+.card-header h3 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.card-header .badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  background: var(--surface3); color: var(--text2);
+}
+.card-body { padding: 12px 18px; }
+.card-body .empty { text-align: center; padding: 30px; color: var(--text2); font-size: 13px; }
+.service-list { display: flex; flex-direction: column; gap: 4px; max-height: 400px; overflow-y: auto; }
+.service-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 6px; font-size: 13px;
+  transition: background 0.1s;
+}
+.service-item:hover { background: var(--surface2); }
+.service-item .si-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.si-dot.live { background: var(--green); }
+.si-dot.building { background: var(--yellow); }
+.si-dot.planned { background: var(--text2); }
+.si-dot.offline { background: var(--red); }
+.service-item .si-name { flex: 1; font-weight: 500; }
+.service-item .si-type { font-size: 11px; color: var(--text2); }
+.service-item .si-tools { font-size: 11px; color: var(--text2); }
+.conv-list { display: flex; flex-direction: column; gap: 4px; max-height: 400px; overflow-y: auto; }
+.conv-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 6px; font-size: 13px;
+  transition: background 0.1s; cursor: pointer;
+}
+.conv-item:hover { background: var(--surface2); }
+.conv-item .ci-status { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.ci-status.running { background: var(--green); }
+.ci-status.stopped { background: var(--text2); }
+.ci-status.starting { background: var(--yellow); }
+.conv-item .ci-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-item .ci-time { font-size: 11px; color: var(--text2); flex-shrink: 0; }
+.activity-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
+.activity-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 10px; border-radius: 6px; font-size: 13px;
+}
+.activity-item .ai-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; background: var(--cyan); }
+.activity-item .ai-msg { flex: 1; color: var(--text2); font-size: 12px; }
+.activity-item .ai-time { font-size: 11px; color: var(--text2); flex-shrink: 0; }
+.project-list { display: flex; flex-direction: column; gap: 6px; }
+.project-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; background: var(--surface2); border-radius: 8px;
+}
+.project-item .pi-icon { font-size: 20px; }
+.project-item .pi-info { flex: 1; }
+.project-item .pi-name { font-size: 14px; font-weight: 600; }
+.project-item .pi-desc { font-size: 12px; color: var(--text2); }
+.project-item .pi-status {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  background: rgba(34,197,94,0.15); color: var(--green);
+}
+.tools-cloud {
+  display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 0;
+}
+.tools-cloud .tag {
+  padding: 3px 8px; border-radius: 4px; font-size: 11px;
+  background: var(--surface2); color: var(--text2);
+  font-family: monospace; transition: all 0.15s;
+}
+.tools-cloud .tag:hover { background: var(--surface3); color: var(--text); }
+.search-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6); z-index: 100;
+  padding: 60px 20px; overflow-y: auto;
+}
+.search-overlay.open { display: block; }
+.search-panel {
+  max-width: 600px; margin: 0 auto;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
+}
+.search-panel .sp-header { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.search-panel .sp-header input {
+  width: 100%; border: none; background: var(--surface2);
+  padding: 10px 14px; border-radius: 8px; font-size: 15px;
+  color: var(--text); outline: none;
+}
+.search-panel .sp-body { padding: 12px 20px; max-height: 60vh; overflow-y: auto; }
+.search-panel .sp-body .empty { text-align: center; padding: 30px; color: var(--text2); font-size: 13px; }
+.search-result {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.search-result:last-child { border-bottom: none; }
+.search-result .sr-type {
+  font-size: 10px; padding: 2px 6px; border-radius: 4px;
+  background: var(--surface3); color: var(--text2); text-transform: uppercase;
+  flex-shrink: 0;
+}
+.search-result .sr-title { flex: 1; }
+.search-result .sr-sub { font-size: 11px; color: var(--text2); }
+.loading { text-align: center; padding: 40px; color: var(--text2); }
+.loading .spinner {
+  width: 28px; height: 28px; border: 3px solid var(--border);
+  border-top-color: var(--blue); border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin: 0 auto 10px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-banner {
+  background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+  color: var(--red); padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 13px;
+}
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .main { padding: 16px; }
+  .topbar { flex-direction: column; align-items: stretch; }
+  .search-box { width: 100%; }
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+}
+.btn {
+  padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text); cursor: pointer; font-size: 13px;
+}
+.btn:hover { background: var(--surface2); }
+.actions { display: flex; align-items: center; gap: 8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo"><h1>ERP Control</h1><div class="sub">Management Dashboard</div></div>
+    <nav id="sidebarNav">
+      <a class="active" data-page="overview">Overview</a>
+      <a data-page="projects">Projects</a>
+      <a data-page="chat">Chat History</a>
+      <a data-page="activity">Activity</a>
+      <a data-page="services">Services</a>
+      <a data-page="agents">AI Agents</a>
+    </nav>
+    <div class="status-bar">
+      <span class="dot online" id="statusDot"></span>
+      <span id="statusText">Connected</span>
+      <span style="margin-left:auto;font-size:10px" id="refreshTime"></span>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="page-title">
+        <h2 id="pageTitle">Overview</h2>
+        <p id="pageSubtitle">Real-time system status</p>
+      </div>
+      <div class="actions">
+        <div class="search-box" id="searchTrigger">
+          <span class="icon">?</span>
+          <span class="placeholder">Search anything... (Ctrl+K)</span>
+        </div>
+        <button class="btn" id="refreshBtn" onclick="loadAll()">Refresh</button>
+      </div>
+    </div>
+    <div id="errorContainer"></div>
+    <div class="stats-row" id="statsRow">
+      <div class="stat-card"><div class="label">Services</div><div class="value" id="statServices">-</div><div class="sub">registered</div></div>
+      <div class="stat-card"><div class="label">Tools</div><div class="value" id="statTools">-</div><div class="sub">available</div></div>
+      <div class="stat-card"><div class="label">Live</div><div class="value" id="statLive">-</div><div class="sub">services online</div></div>
+      <div class="stat-card"><div class="label">Conversations</div><div class="value" id="statConvs">-</div><div class="sub">chat sessions</div></div>
+    </div>
+    <div id="contentArea"></div>
+  </div>
+</div>
+<div class="search-overlay" id="searchOverlay">
+  <div class="search-panel">
+    <div class="sp-header"><input type="text" id="searchInput" placeholder="Search services, tools, conversations..." autofocus></div>
+    <div class="sp-body" id="searchResults"><div class="empty">Type to start searching...</div></div>
+  </div>
+</div>
+<script>
+var API = '';
+var allData = null;
+var searchTimeout = null;
+document.querySelectorAll('#sidebarNav a').forEach(function(a) {
+  a.addEventListener('click', function() {
+    document.querySelectorAll('#sidebarNav a').forEach(function(x) { x.classList.remove('active'); });
+    a.classList.add('active');
+    switchPage(a.dataset.page);
+  });
+});
+function switchPage(page) {
+  var titles = {
+    overview: ['Overview', 'Real-time system status'],
+    projects: ['Projects', 'Task Manager projects'],
+    chat: ['Chat History', 'OpenHands conversations'],
+    activity: ['Activity Log', 'Recent system activity'],
+    services: ['Services', 'All registered services and tools'],
+    agents: ['AI Agents', 'Project Manager & Sub Agents status']
+  };
+  var t = titles[page] || ['Overview', ''];
+  document.getElementById('pageTitle').textContent = t[0];
+  document.getElementById('pageSubtitle').textContent = t[1];
+  renderPage(page);
+}
+function loadAll() {
+  var errEl = document.getElementById('errorContainer');
+  errEl.innerHTML = '';
+  document.getElementById('refreshTime').textContent = 'Loading...';
+  fetch('/api/dashboard').then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function(data) {
+    allData = data;
+    var svcs = data.services || [];
+    var tools = data.tools || [];
+    var convs = data.conversations || [];
+    document.getElementById('statServices').textContent = svcs.length;
+    document.getElementById('statTools').textContent = tools.length;
+    document.getElementById('statLive').textContent = svcs.filter(function(s) { return s.status === 'live'; }).length;
+    document.getElementById('statConvs').textContent = convs.length;
+    document.getElementById('refreshTime').textContent = new Date().toLocaleTimeString();
+    document.getElementById('statusText').textContent = 'Connected';
+    document.getElementById('statusDot').className = 'dot online';
+    if (data.errors && data.errors.length) {
+      errEl.innerHTML = data.errors.map(function(e) { return '<div class="error-banner">Warning: ' + e + '</div>'; }).join('');
+    }
+    var active = document.querySelector('#sidebarNav a.active');
+    renderPage(active ? active.dataset.page : 'overview');
+  }).catch(function(err) {
+    errEl.innerHTML = '<div class="error-banner">Failed to load: ' + err.message + '</div>';
+    document.getElementById('statusText').textContent = 'Disconnected';
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusDot').style.background = 'var(--red)';
+  });
+}
+function renderPage(page) {
+  var area = document.getElementById('contentArea');
+  if (!allData) { area.innerHTML = '<div class="loading"><div class="spinner"></div>Loading data...</div>'; return; }
+  if (page === 'overview') renderOverview(area);
+  else if (page === 'projects') renderProjects(area);
+  else if (page === 'chat') renderChat(area);
+  else if (page === 'activity') renderActivity(area);
+  else if (page === 'services') renderServices(area);
+  else if (page === 'agents') renderAgents(area);
+  else renderOverview(area);
+}
+function renderOverview(area) {
+  var svcs = allData.services || [];
+  var convs = allData.conversations || [];
+  var activity = allData.activity || [];
+  var projects = allData.projects || [];
+  var tools = allData.tools || [];
+  var html = '<div class="dashboard-grid">';
+  html += '<div class="card"><div class="card-header"><h3>Services</h3><span class="badge">' + svcs.length + '</span></div><div class="card-body"><div class="service-list">';
+  var maxSvc = Math.min(10, svcs.length);
+  for (var i = 0; i < maxSvc; i++) {
+    var s = svcs[i];
+    html += '<div class="service-item"><span class="si-dot ' + s.status + '"></span><span class="si-name">' + s.name + '</span><span class="si-type">' + s.type + '</span><span class="si-tools">' + (s.tools||[]).length + ' tools</span></div>';
+  }
+  if (svcs.length > 10) html += '<div style="text-align:center;padding:8px;font-size:12px;color:var(--text2)">+' + (svcs.length-10) + ' more</div>';
+  html += '</div></div></div>';
+  html += '<div class="card"><div class="card-header"><h3>Recent Conversations</h3><span class="badge">' + convs.length + '</span></div><div class="card-body"><div class="conv-list">';
+  if (convs.length) {
+    var maxConv = Math.min(10, convs.length);
+    for (var i = 0; i < maxConv; i++) {
+      var c = convs[i];
+      html += '<div class="conv-item"><span class="ci-status ' + (c.status||'').toLowerCase() + '"></span><span class="ci-title">' + (c.title||'Untitled') + '</span><span class="ci-time">' + timeAgo(c.last_updated||c.created_at) + '</span></div>';
+    }
+  } else {
+    html += '<div class="empty">No conversations yet</div>';
+  }
+  html += '</div></div></div>';
+  html += '<div class="card"><div class="card-header"><h3>Projects</h3><span class="badge">' + projects.length + '</span></div><div class="card-body">';
+  if (projects.length) {
+    html += '<div class="project-list">';
+    for (var i = 0; i < projects.length; i++) {
+      var p = projects[i];
+      html += '<div class="project-item"><span class="pi-icon">Folder</span><div class="pi-info"><div class="pi-name">' + p.name + '</div><div class="pi-desc">' + (p.description||'') + '</div></div><span class="pi-status">' + p.status + '</span></div>';
+    }
+    html += '</div>';
+  } else {
+    html += '<div class="empty">No projects yet</div>';
+  }
+  html += '</div></div>';
+  html += '<div class="card"><div class="card-header"><h3>Recent Activity</h3><span class="badge">' + activity.length + '</span></div><div class="card-body"><div class="activity-list">';
+  if (activity.length) {
+    var maxAct = Math.min(8, activity.length);
+    for (var i = 0; i < maxAct; i++) {
+      var a = activity[i];
+      html += '<div class="activity-item"><span class="ai-dot"></span><span class="ai-msg">' + a.message + '</span><span class="ai-time">' + timeAgo(a.timestamp) + '</span></div>';
+    }
+  } else {
+    html += '<div class="empty">No activity yet</div>';
+  }
+  html += '</div></div></div></div>';
+  html += '<div class="card"><div class="card-header"><h3>All Tools (' + tools.length + ')</h3></div><div class="card-body"><div class="tools-cloud">';
+  for (var i = 0; i < tools.length; i++) {
+    html += '<span class="tag">' + tools[i].name + '</span>';
+  }
+  html += '</div></div></div>';
+  area.innerHTML = html;
+}
+function renderProjects(area) {
+  var projects = allData.projects || [];
+  var html = '<div class="card"><div class="card-header"><h3>All Projects</h3><span class="badge">' + projects.length + '</span></div><div class="card-body">';
+  if (projects.length) {
+    html += '<div class="project-list">';
+    for (var i = 0; i < projects.length; i++) {
+      var p = projects[i];
+      html += '<div class="project-item"><span class="pi-icon">Folder</span><div class="pi-info"><div class="pi-name">' + p.name + '</div><div class="pi-desc">' + (p.description||'') + '</div></div><span class="pi-status">' + p.status + '</span></div>';
+    }
+    html += '</div>';
+  } else {
+    html += '<div class="empty">No projects yet. Create one in Task Manager.</div>';
+  }
+  html += '</div></div>';
+  area.innerHTML = html;
+}
+function renderChat(area) {
+  var convs = allData.conversations || [];
+  var html = '<div class="card"><div class="card-header"><h3>All Conversations</h3><span class="badge">' + convs.length + '</span></div><div class="card-body"><div class="conv-list" style="max-height:600px">';
+  if (convs.length) {
+    for (var i = 0; i < convs.length; i++) {
+      var c = convs[i];
+      html += '<div class="conv-item"><span class="ci-status ' + (c.status||'').toLowerCase() + '"></span><div style="flex:1;min-width:0"><div class="ci-title">' + (c.title||'Untitled') + '</div><div style="font-size:11px;color:var(--text2)">' + c.status + ' - ' + timeAgo(c.created_at) + '</div></div><span style="font-size:11px;color:var(--text2)">' + (c.id ? c.id.slice(0,8) : '') + '</span></div>';
+    }
+  } else {
+    html += '<div class="empty">No conversations yet</div>';
+  }
+  html += '</div></div></div>';
+  area.innerHTML = html;
+}
+function renderActivity(area) {
+  var activity = allData.activity || [];
+  var html = '<div class="card"><div class="card-header"><h3>Activity Log</h3><span class="badge">' + activity.length + '</span></div><div class="card-body"><div class="activity-list" style="max-height:600px">';
+  if (activity.length) {
+    for (var i = 0; i < activity.length; i++) {
+      var a = activity[i];
+      html += '<div class="activity-item"><span class="ai-dot"></span><span class="ai-msg">' + a.message + '</span><span class="ai-time">' + (a.timestamp ? new Date(a.timestamp).toLocaleString() : '') + '</span></div>';
+    }
+  } else {
+    html += '<div class="empty">No activity yet</div>';
+  }
+  html += '</div></div></div>';
+  area.innerHTML = html;
+}
+function renderServices(area) {
+  var svcs = allData.services || [];
+  var tools = allData.tools || [];
+  var html = '<div class="dashboard-grid">';
+  html += '<div class="card"><div class="card-header"><h3>Services</h3><span class="badge">' + svcs.length + '</span></div><div class="card-body"><div class="service-list" style="max-height:500px">';
+  for (var i = 0; i < svcs.length; i++) {
+    var s = svcs[i];
+    html += '<div class="service-item"><span class="si-dot ' + s.status + '"></span><span class="si-name">' + s.name + '</span><span class="si-type">' + s.type + '</span><span class="si-tools">' + (s.tools||[]).length + ' tools</span></div>';
+  }
+  html += '</div></div></div>';
+  html += '<div class="card"><div class="card-header"><h3>Tools</h3><span class="badge">' + tools.length + '</span></div><div class="card-body"><div class="tools-cloud">';
+  for (var i = 0; i < tools.length; i++) {
+    html += '<span class="tag">' + tools[i].name + '</span>';
+  }
+  html += '</div></div></div></div>';
+  area.innerHTML = html;
+}
+function renderAgents(area) {
+  var pm = allData.project_manager || {};
+  var reports = pm.reports || [];
+  var summary = pm.summary || {};
+  var projects = pm.projects || [];
+  var html = '<div class="dashboard-grid">';
+
+  // Summary cards
+  html += '<div class="card"><div class="card-header"><h3>Project Manager</h3><span class="badge">' + (summary.status || 'active') + '</span></div><div class="card-body"><div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin:0">';
+  html += '<div class="stat-card" style="padding:8px"><div class="label">Reports</div><div class="value" style="font-size:18px">' + (summary.total_reports || 0) + '</div></div>';
+  html += '<div class="stat-card" style="padding:8px"><div class="label">Pending</div><div class="value" style="font-size:18px;color:var(--yellow)">' + (summary.pending_reports || 0) + '</div></div>';
+  html += '<div class="stat-card" style="padding:8px"><div class="label">Matched</div><div class="value" style="font-size:18px;color:var(--green)">' + (summary.matched_reports || 0) + '</div></div>';
+  html += '<div class="stat-card" style="padding:8px"><div class="label">Conflicted</div><div class="value" style="font-size:18px;color:var(--red)">' + (summary.conflicted_reports || 0) + '</div></div>';
+  html += '</div></div></div>';
+
+  // Sub Agents
+  var agents = pm.agents || [
+    {name:'monitor-chat', status: pm.monitor_chat_status || 'idle', desc:'Monitors OpenHands conversations'},
+    {name:'system-monitor', status: pm.system_monitor_status || 'idle', desc:'Monitors service health'}
+  ];
+  html += '<div class="card"><div class="card-header"><h3>Sub Agents</h3><span class="badge">' + agents.length + '</span></div><div class="card-body"><div class="service-list">';
+  for (var i = 0; i < agents.length; i++) {
+    var a = agents[i];
+    var dot = a.status === 'running' || a.status === 'live' ? 'live' : 'planned';
+    html += '<div class="service-item"><span class="si-dot ' + dot + '"></span><span class="si-name">' + a.name + '</span><span class="si-type">' + a.status + '</span><span class="si-tools">' + (a.desc || '') + '</span></div>';
+  }
+  html += '</div></div></div>';
+
+  // Recent Reports
+  html += '<div class="card" style="grid-column:1/-1"><div class="card-header"><h3>Recent Reports</h3><span class="badge">' + reports.length + '</span></div><div class="card-body"><div class="service-list" style="max-height:300px">';
+  if (reports.length === 0) {
+    html += '<div class="empty-state">No reports yet. Sub Agents will report here automatically.</div>';
+  } else {
+    for (var i = 0; i < reports.length; i++) {
+      var r = reports[i];
+      var icon = r.status === 'matched' ? '✅' : r.status === 'conflicted' ? '🔴' : r.status === 'applied' ? '✅' : '⏳';
+      html += '<div class="service-item"><span>' + icon + '</span><span class="si-name">' + r.agent + '</span><span class="si-type">' + r.type + '</span><span class="si-tools">' + (r.status || 'pending') + ' | ' + timeAgo(r.timestamp) + '</span></div>';
+    }
+  }
+  html += '</div></div></div>';
+
+  // Projects created by PM
+  html += '<div class="card" style="grid-column:1/-1"><div class="card-header"><h3>Auto-created Projects</h3><span class="badge">' + projects.length + '</span></div><div class="card-body"><div class="service-list" style="max-height:200px">';
+  if (projects.length === 0) {
+    html += '<div class="empty-state">No auto-created projects yet.</div>';
+  } else {
+    for (var i = 0; i < projects.length; i++) {
+      var p = projects[i];
+      html += '<div class="service-item"><span class="si-dot ' + (p.status === 'active' ? 'live' : 'planned') + '"></span><span class="si-name">' + (p.name || '?') + '</span><span class="si-type">' + (p.status || 'active') + '</span><span class="si-tools">' + (p.tasks ? p.tasks.length + ' tasks' : '') + '</span></div>';
+    }
+  }
+  html += '</div></div></div>';
+
+  html += '</div>';
+  area.innerHTML = html;
+}
+document.getElementById('searchTrigger').addEventListener('click', function() {
+  document.getElementById('searchOverlay').classList.add('open');
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchResults').innerHTML = '<div class="empty">Type to start searching...</div>';
+  document.getElementById('searchInput').focus();
+});
+document.getElementById('searchOverlay').addEventListener('click', function(e) {
+  if (e.target === document.getElementById('searchOverlay')) {
+    document.getElementById('searchOverlay').classList.remove('open');
+  }
+});
+document.getElementById('searchInput').addEventListener('input', function(e) {
+  clearTimeout(searchTimeout);
+  var q = e.target.value.trim();
+  if (!q) { document.getElementById('searchResults').innerHTML = '<div class="empty">Type to start searching...</div>'; return; }
+  searchTimeout = setTimeout(function() { doSearch(q); }, 300);
+});
+function doSearch(q) {
+  var el = document.getElementById('searchResults');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  fetch('/api/search?q=' + encodeURIComponent(q)).then(function(r) { return r.json(); }).then(function(data) {
+    var results = data.results || [];
+    if (!results.length) { el.innerHTML = '<div class="empty">No results found</div>'; return; }
+    var html = '';
+    for (var i = 0; i < results.length; i++) {
+      var r = results[i];
+      html += '<div class="search-result"><span class="sr-type">' + r.type + '</span><span class="sr-title">' + r.title + '</span><span class="sr-sub">' + (r.subtitle || r.status || r.id || '') + '</span></div>';
+    }
+    el.innerHTML = html;
+  }).catch(function(err) { el.innerHTML = '<div class="empty">Search failed: ' + err.message + '</div>'; });
+}
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); document.getElementById('searchTrigger').click(); }
+  if (e.key === 'Escape') { document.getElementById('searchOverlay').classList.remove('open'); }
+});
+function timeAgo(ts) {
+  if (!ts) return '';
+  var d = new Date(ts);
+  var now = new Date();
+  var diff = Math.floor((now - d) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+  return Math.floor(diff/86400) + 'd ago';
+}
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>

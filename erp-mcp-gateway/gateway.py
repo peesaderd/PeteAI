@@ -48,6 +48,7 @@ URL_OVERRIDES = {
     "register": os.environ.get("REGISTER_URL", "http://89.167.82.205:54510"),
     "vue-dashboard": os.environ.get("VUE_DASHBOARD_URL", "http://89.167.82.205:55769"),
     "etsy-connector": os.environ.get("ETSY_CONNECTOR_URL", "http://89.167.82.205:3456"),
+    "project-manager": os.environ.get("PM_URL", "http://89.167.82.205:8090"),
 }
 
 # Status overrides: force a service status to a specific value.
@@ -497,6 +498,141 @@ def create_rest_app(registry: ServiceRegistry, router: ToolRouter):
     def sync():
         changes = registry.sync_from_erp_core()
         return {"status": "ok", "changes": changes}
+
+    # ─── Dashboard API ────────────────────────────────────────────────
+
+    @app.get("/api/dashboard")
+    def get_dashboard():
+        """Aggregated dashboard data from all services."""
+        services = registry.list_services()
+        tools = registry.get_all_tools()
+
+        # Health check key services
+        health_checks = {}
+        for name in ["erp-core", "task-manager", "noteforge", "etsy-connector"]:
+            if name in services:
+                health_checks[name] = registry.health_check(name)
+
+        # Task Manager summary
+        task_mgr = services.get("task-manager", {})
+        task_mgr_url = URL_OVERRIDES.get("task-manager", task_mgr.get("url", ""))
+        task_summary = {}
+        if task_mgr.get("status") == "live" and task_mgr_url:
+            try:
+                resp = httpx.get(f"{task_mgr_url}/health", timeout=3.0)
+                if resp.status_code == 200:
+                    task_summary = resp.json()
+            except Exception:
+                pass
+
+        # Project Manager data
+        pm_url = URL_OVERRIDES.get("project-manager")
+        project_manager = {}
+        if pm_url:
+            try:
+                pm_health = httpx.get(f"{pm_url}/health", timeout=3.0)
+                if pm_health.status_code == 200:
+                    pm_data = {"health": pm_health.json()}
+                    try:
+                        r = httpx.get(f"{pm_url}/api/reports", timeout=3.0)
+                        if r.status_code == 200:
+                            pm_data["reports"] = r.json()
+                    except Exception:
+                        pm_data["reports"] = []
+                    try:
+                        r = httpx.get(f"{pm_url}/api/projects", timeout=3.0)
+                        if r.status_code == 200:
+                            pm_data["projects"] = r.json()
+                    except Exception:
+                        pm_data["projects"] = []
+                    try:
+                        r = httpx.get(f"{pm_url}/api/summary", timeout=3.0)
+                        if r.status_code == 200:
+                            pm_data["summary"] = r.json()
+                    except Exception:
+                        pm_data["summary"] = {}
+                    project_manager = pm_data
+            except Exception:
+                project_manager = {"error": "unreachable"}
+
+        return {
+            "gateway": {
+                "status": "ok",
+                "services_count": len(services),
+                "tools_count": len(tools),
+                "uptime": datetime.now().isoformat(),
+            },
+            "services": {
+                name: {
+                    "status": svc.get("status"),
+                    "type": svc.get("type"),
+                    "url": URL_OVERRIDES.get(name, svc.get("url", "")),
+                    "tools_count": len(svc.get("tools", [])),
+                }
+                for name, svc in sorted(services.items())
+            },
+            "health": health_checks,
+            "task_manager": task_summary,
+            "project_manager": project_manager,
+        }
+
+    # ─── Search API ───────────────────────────────────────────────────
+
+    @app.get("/api/search")
+    def search(q: str = ""):
+        """Search across all registered services."""
+        if not q:
+            return {"results": []}
+        q = q.lower()
+        services = registry.list_services()
+        results = []
+        for name, svc in services.items():
+            if q in name.lower():
+                results.append({
+                    "type": "service",
+                    "name": name,
+                    "url": URL_OVERRIDES.get(name, svc.get("url", "")),
+                    "status": svc.get("status"),
+                })
+            for tool in svc.get("tools", []):
+                if q in tool.lower():
+                    results.append({
+                        "type": "tool",
+                        "service": name,
+                        "name": tool,
+                    })
+        # Also search Project Manager if available
+        pm_url = URL_OVERRIDES.get("project-manager")
+        if pm_url:
+            try:
+                resp = httpx.get(f"{pm_url}/api/projects", timeout=3.0)
+                if resp.status_code == 200:
+                    for proj in resp.json():
+                        if q in proj.get("name", "").lower() or q in proj.get("description", "").lower():
+                            results.append({
+                                "type": "project",
+                                "name": proj.get("name"),
+                                "status": proj.get("status"),
+                                "id": proj.get("id"),
+                            })
+            except Exception:
+                pass
+        return {"results": results[:50]}
+
+    # ─── Dashboard UI (Static Files) ──────────────────────────────────
+
+    import pathlib
+    dashboard_dir = pathlib.Path(__file__).parent / "dashboard"
+    dashboard_dir.mkdir(exist_ok=True)
+
+    if dashboard_dir.exists():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/dashboard", StaticFiles(directory=str(dashboard_dir), html=True), name="dashboard")
+
+    @app.get("/")
+    def root():
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/dashboard/index.html")
 
     return app
 
