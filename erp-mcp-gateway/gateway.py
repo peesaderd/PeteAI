@@ -38,6 +38,24 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 REGISTRY_CACHE_FILE = DATA_DIR / "registry-cache.json"
 SERVICES_FILE = DATA_DIR / "services.json"
 
+# URL overrides: map service name -> actual reachable URL
+# This is needed because ERP Core Registry may contain internal Docker hostnames
+# that are not resolvable from the Gateway's network.
+URL_OVERRIDES = {
+    "erp-core": os.environ.get("ERP_CORE_URL", "http://89.167.82.205:54509"),
+    "task-manager": os.environ.get("TASK_MANAGER_URL", "http://89.167.82.205:8081"),
+    "noteforge": os.environ.get("NOTEFORGE_URL", "http://89.167.82.205:54510"),
+    "register": os.environ.get("REGISTER_URL", "http://89.167.82.205:54510"),
+    "vue-dashboard": os.environ.get("VUE_DASHBOARD_URL", "http://89.167.82.205:55769"),
+    "etsy-connector": os.environ.get("ETSY_CONNECTOR_URL", "http://89.167.82.205:3456"),
+}
+
+# Status overrides: force a service status to a specific value.
+# Useful when ERP Core Registry reports incorrect status for known-working services.
+STATUS_OVERRIDES = {
+    "task-manager": "live",
+}
+
 # ─── Service Registry (in-memory + file) ──────────────────────────────
 
 class ServiceRegistry:
@@ -77,11 +95,15 @@ class ServiceRegistry:
             if resp.status_code == 200:
                 data = resp.json()
                 for name, info in data.items():
+                    status = info.get("status", "unknown")
+                    # Apply status overrides
+                    if name in STATUS_OVERRIDES:
+                        status = STATUS_OVERRIDES[name]
                     if name not in self._services:
                         self._services[name] = {
                             "url": info.get("url", ""),
                             "type": info.get("type", "tool"),
-                            "status": info.get("status", "unknown"),
+                            "status": status,
                             "tools": info.get("tools", []),
                             "discovered_from": "erp-core",
                             "discovered_at": datetime.now().isoformat(),
@@ -92,6 +114,9 @@ class ServiceRegistry:
                         for key in ("url", "type", "status", "tools"):
                             if key in info:
                                 self._services[name][key] = info[key]
+                        # Re-apply status override after sync
+                        if name in STATUS_OVERRIDES:
+                            self._services[name]["status"] = STATUS_OVERRIDES[name]
                 self._rebuild_tool_map()
                 self._save()
         except Exception as e:
@@ -181,6 +206,12 @@ class ToolRouter:
         self.registry = registry
         self._http_client = httpx.Client(timeout=30.0)
 
+    def _get_service_url(self, svc_name: str, svc: dict) -> str:
+        """Get the reachable URL for a service, using overrides if available."""
+        if svc_name in URL_OVERRIDES:
+            return URL_OVERRIDES[svc_name]
+        return svc.get("url", "")
+
     def route_tool_call(self, tool_name: str, args: dict) -> dict:
         """Route a tool call to the correct service and return the result."""
         result = self.registry.get_service_for_tool(tool_name)
@@ -192,7 +223,7 @@ class ToolRouter:
             }
 
         svc_name, svc = result
-        url = svc.get("url", "")
+        url = self._get_service_url(svc_name, svc)
 
         if svc.get("status") != "live":
             return {
