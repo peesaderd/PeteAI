@@ -4,3 +4,15 @@ data/
 .env
 *.log
 .DS_Store
+
+# Backup files
+*.bak
+
+# OS files
+Thumbs.db
+
+# Docker
+docker-data/
+
+# Etsy connector (separate repo)
+../etsy-connector/

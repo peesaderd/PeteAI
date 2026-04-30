@@ -8,7 +8,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { getDatabase } from '../db/database.js';
 import { AuthManager } from '../auth/auth.js';
@@ -18,9 +18,10 @@ import { ChannelManager } from '../channels/index.js';
 import { ReportEngine } from '../reports/index.js';
 import { NotificationEngine } from '../notifications/index.js';
 import { RBACManager } from '../rbac/index.js';
+import { ServiceRegistry } from '../gateway/registry.js';
 
-function tool(name: string, description: string, schema: z.ZodObject<any>) {
-  return { name, description, inputSchema: zodToJsonSchema(schema) };
+function tool(name: string, description: string, schema: z.ZodTypeAny) {
+  return { name, description, inputSchema: zodToJsonSchema(schema as any) };
 }
 
 const TOOLS = [
@@ -1181,6 +1182,56 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
     }
 
     default:
-      throw new Error(`Unknown tool: ${name}`);
+      // Look up tool in service registry and forward to appropriate service
+      const registry = new ServiceRegistry();
+      const allServices = registry.listServices();
+      let foundService: any = null;
+      let foundTool = false;
+
+      for (const [svcName, svc] of Object.entries(allServices)) {
+        if (svc.tools && svc.tools.includes(name)) {
+          foundService = svc;
+          foundTool = true;
+          break;
+        }
+      }
+
+      if (!foundTool) {
+        // Case-insensitive fallback
+        for (const [svcName, svc] of Object.entries(allServices)) {
+          if (svc.tools) {
+            for (const t of svc.tools) {
+              if (t.toLowerCase() === name.toLowerCase()) {
+                foundService = svc;
+                foundTool = true;
+                break;
+              }
+            }
+          }
+          if (foundTool) break;
+        }
+      }
+
+      if (!foundService || !foundService.url) {
+        throw new Error(`Unknown tool: ${name}`);
+      }
+
+      // Forward the tool call to the service's MCP endpoint
+      const mcpPath = foundService.mcpEndpoint || "/mcp";
+      const mcpUrl = new URL(mcpPath, foundService.url).toString();
+      try {
+        const response = await fetch(mcpUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: name, args: _args }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || `Service returned ${response.status}`);
+        }
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+      } catch (err: any) {
+        throw new Error(`Error forwarding tool '${name}' to '${foundService.name}': ${err.message}`);
+      }
   }
 }

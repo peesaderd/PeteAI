@@ -4,6 +4,8 @@ import { AuthManager } from '../auth/auth.js';
 import { TenantManager } from '../tenants/manager.js';
 import { RBACManager } from '../rbac/index.js';
 import { handleToolCall } from '../mcp/server.js';
+import { createRegistryRouter } from './registry.js';
+import { createProxyRouter } from '../gateway/proxy.js';
 
 export function createRouter() {
   const router = Router();
@@ -53,6 +55,13 @@ export function createRouter() {
       res.status(400).json({ error: err.message });
     }
   });
+
+  // Mount registry API
+  const registryRouter = createRegistryRouter();
+  router.use('/registry', registryRouter);
+
+  const proxyRouter = createProxyRouter();
+  router.use('/proxy', proxyRouter);
 
   return router;
 }

@@ -130,6 +130,110 @@ const TOOLS = [
   tool('kb_get_stats', 'Get knowledge base statistics', z.object({})),
 ];
 
+// Export tool definitions for HTTP MCP endpoint
+const TOOL_DEFINITIONS = TOOLS.map(t => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
+
+// ============================================================
+// Tool Handler (shared between stdio MCP and HTTP MCP)
+// ============================================================
+
+function handleToolCall(name: string, args: Record<string, any>, db: Database.Database): any {
+  const now = Math.floor(Date.now() / 1000);
+
+  try {
+    switch (name) {
+      case 'kb_list_collections': {
+        const collections = db.prepare('SELECT * FROM collections ORDER BY sort_order').all();
+        return { content: [{ type: 'text', text: JSON.stringify(collections, null, 2) }] };
+      }
+
+      case 'kb_create_collection': {
+        const id = uuid();
+        db.prepare('INSERT INTO collections (id, name, description, icon, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(id, args.name, args.description || null, args.icon || '\ud83d\udcc1', now, now);
+        const col = db.prepare('SELECT * FROM collections WHERE id = ?').get(id);
+        return { content: [{ type: 'text', text: JSON.stringify(col, null, 2) }] };
+      }
+
+      case 'kb_list_documents': {
+        const { collectionId, search, tag, limit = 50 } = args;
+        let sql = 'SELECT id, collection_id, title, tags, is_published, is_favorite, word_count, created_at, updated_at FROM documents WHERE 1=1';
+        const queryParams: any[] = [];
+        if (collectionId) { sql += ' AND collection_id = ?'; queryParams.push(collectionId); }
+        if (search) { sql += ' AND (title LIKE ? OR content LIKE ?)'; queryParams.push('%' + search + '%', '%' + search + '%'); }
+        if (tag) { sql += ' AND tags LIKE ?'; queryParams.push('%"' + tag + '"%'); }
+        sql += ' ORDER BY updated_at DESC LIMIT ?';
+        queryParams.push(limit);
+        const docs = db.prepare(sql).all(...queryParams);
+        return { content: [{ type: 'text', text: JSON.stringify(docs, null, 2) }] };
+      }
+
+      case 'kb_get_document': {
+        const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(args.documentId);
+        if (!doc) throw new Error('Document not found');
+        return { content: [{ type: 'text', text: JSON.stringify(doc, null, 2) }] };
+      }
+
+      case 'kb_create_document': {
+        const id = uuid();
+        const contentHtml = marked.parse(args.content || '') as string;
+        const wordCount = (args.content || '').split(/\s+/).filter(Boolean).length;
+        db.prepare('INSERT INTO documents (id, collection_id, title, content, content_html, tags, word_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, args.collectionId, args.title, args.content || '', contentHtml, JSON.stringify(args.tags || []), wordCount, now, now);
+        const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(id);
+        return { content: [{ type: 'text', text: JSON.stringify(doc, null, 2) }] };
+      }
+
+      case 'kb_update_document': {
+        const { documentId, ...fields } = args;
+        const updates: string[] = ['updated_at = ?'];
+        const queryParams: any[] = [now];
+        if (fields.title !== undefined) { updates.push('title = ?'); queryParams.push(fields.title); }
+        if (fields.content !== undefined) {
+          updates.push('content = ?', 'content_html = ?', 'word_count = ?');
+          queryParams.push(fields.content, marked.parse(fields.content) as string, fields.content.split(/\s+/).filter(Boolean).length);
+        }
+        if (fields.tags !== undefined) { updates.push('tags = ?'); queryParams.push(JSON.stringify(fields.tags)); }
+        queryParams.push(documentId);
+        db.prepare('UPDATE documents SET ' + updates.join(', ') + ' WHERE id = ?').run(...queryParams);
+        const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(documentId);
+        return { content: [{ type: 'text', text: JSON.stringify(doc, null, 2) }] };
+      }
+
+      case 'kb_delete_document': {
+        db.prepare('DELETE FROM document_links WHERE source_id = ? OR target_id = ?').run(args.documentId, args.documentId);
+        db.prepare('DELETE FROM documents WHERE id = ?').run(args.documentId);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
+      }
+
+      case 'kb_search': {
+        const docs = db.prepare('SELECT id, collection_id, title, tags, created_at, updated_at FROM documents WHERE title LIKE ? OR content LIKE ? ORDER BY updated_at DESC LIMIT ?')
+          .all('%' + args.query + '%', '%' + args.query + '%', args.limit || 20);
+        return { content: [{ type: 'text', text: JSON.stringify(docs, null, 2) }] };
+      }
+
+      case 'kb_get_graph': {
+        const nodes = db.prepare('SELECT id, title, collection_id FROM documents').all();
+        const edges = db.prepare('SELECT source_id, target_id FROM document_links').all();
+        return { content: [{ type: 'text', text: JSON.stringify({ nodes, edges }, null, 2) }] };
+      }
+
+      case 'kb_get_stats': {
+        const docCount = (db.prepare('SELECT COUNT(*) as count FROM documents').get() as any).count;
+        const colCount = (db.prepare('SELECT COUNT(*) as count FROM collections').get() as any).count;
+        const linkCount = (db.prepare('SELECT COUNT(*) as count FROM document_links').get() as any).count;
+        const totalWords = (db.prepare('SELECT SUM(word_count) as total FROM documents').get() as any).total || 0;
+        return { content: [{ type: 'text', text: JSON.stringify({ documents: docCount, collections: colCount, links: linkCount, totalWords }, null, 2) }] };
+      }
+
+      default:
+        throw new Error('Unknown tool: ' + name);
+    }
+  } catch (error: any) {
+    return { content: [{ type: 'text', text: JSON.stringify({ error: true, message: error.message }, null, 2) }] };
+  }
+}
+
 // ============================================================
 // Server
 // ============================================================
@@ -285,7 +389,26 @@ function createApp(db: Database.Database) {
     res.send(doc.content);
   });
 
-  // Serve web UI
+  // ---- MCP HTTP Endpoint ----
+  app.post('/mcp', (req, res) => {
+    const { name, arguments: args } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Missing tool name' });
+    }
+    try {
+      const result = handleToolCall(name, args || {}, db);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ content: [{ type: 'text', text: JSON.stringify({ error: true, message: error.message }) }] });
+    }
+  });
+
+  // MCP tool discovery endpoint
+  app.get('/mcp', (_req, res) => {
+    res.json({ tools: TOOL_DEFINITIONS });
+  });
+
+  // ---- Serve web UI ----
   const webDir = path.join(import.meta.dirname, '../web');
   if (fs.existsSync(webDir)) {
     app.use(express.static(webDir));
@@ -311,104 +434,11 @@ function createMCPServer(db: Database.Database) {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const params = args as Record<string, any>;
-    const now = Math.floor(Date.now() / 1000);
-
-    try {
-      switch (name) {
-        case 'kb_list_collections': {
-          const collections = db.prepare('SELECT * FROM collections ORDER BY sort_order').all();
-          return { content: [{ type: 'text', text: JSON.stringify(collections, null, 2) }] };
-        }
-
-        case 'kb_create_collection': {
-          const id = uuid();
-          db.prepare('INSERT INTO collections (id, name, description, icon, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-            .run(id, params.name, params.description || null, params.icon || '📁', now, now);
-          const col = db.prepare('SELECT * FROM collections WHERE id = ?').get(id);
-          return { content: [{ type: 'text', text: JSON.stringify(col, null, 2) }] };
-        }
-
-        case 'kb_list_documents': {
-          const { collectionId, search, tag, limit = 50 } = params;
-          let sql = 'SELECT id, collection_id, title, tags, is_published, is_favorite, word_count, created_at, updated_at FROM documents WHERE 1=1';
-          const queryParams: any[] = [];
-          if (collectionId) { sql += ' AND collection_id = ?'; queryParams.push(collectionId); }
-          if (search) { sql += ' AND (title LIKE ? OR content LIKE ?)'; queryParams.push(`%${search}%`, `%${search}%`); }
-          if (tag) { sql += ' AND tags LIKE ?'; queryParams.push(`%"${tag}"%`); }
-          sql += ' ORDER BY updated_at DESC LIMIT ?';
-          queryParams.push(limit);
-          const docs = db.prepare(sql).all(...queryParams);
-          return { content: [{ type: 'text', text: JSON.stringify(docs, null, 2) }] };
-        }
-
-        case 'kb_get_document': {
-          const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(params.documentId);
-          if (!doc) throw new Error('Document not found');
-          return { content: [{ type: 'text', text: JSON.stringify(doc, null, 2) }] };
-        }
-
-        case 'kb_create_document': {
-          const id = uuid();
-          const contentHtml = marked.parse(params.content || '') as string;
-          const wordCount = (params.content || '').split(/\s+/).filter(Boolean).length;
-          db.prepare(`INSERT INTO documents (id, collection_id, title, content, content_html, tags, word_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-            .run(id, params.collectionId, params.title, params.content || '', contentHtml, JSON.stringify(params.tags || []), wordCount, now, now);
-          const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(id);
-          return { content: [{ type: 'text', text: JSON.stringify(doc, null, 2) }] };
-        }
-
-        case 'kb_update_document': {
-          const { documentId, ...fields } = params;
-          const updates: string[] = ['updated_at = ?'];
-          const queryParams: any[] = [now];
-          if (fields.title !== undefined) { updates.push('title = ?'); queryParams.push(fields.title); }
-          if (fields.content !== undefined) {
-            updates.push('content = ?', 'content_html = ?', 'word_count = ?');
-            queryParams.push(fields.content, marked.parse(fields.content) as string, fields.content.split(/\s+/).filter(Boolean).length);
-          }
-          if (fields.tags !== undefined) { updates.push('tags = ?'); queryParams.push(JSON.stringify(fields.tags)); }
-          queryParams.push(documentId);
-          db.prepare(`UPDATE documents SET ${updates.join(', ')} WHERE id = ?`).run(...queryParams);
-          const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(documentId);
-          return { content: [{ type: 'text', text: JSON.stringify(doc, null, 2) }] };
-        }
-
-        case 'kb_delete_document': {
-          db.prepare('DELETE FROM document_links WHERE source_id = ? OR target_id = ?').run(params.documentId, params.documentId);
-          db.prepare('DELETE FROM documents WHERE id = ?').run(params.documentId);
-          return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
-        }
-
-        case 'kb_search': {
-          const docs = db.prepare('SELECT id, collection_id, title, tags, created_at, updated_at FROM documents WHERE title LIKE ? OR content LIKE ? ORDER BY updated_at DESC LIMIT ?')
-            .all(`%${params.query}%`, `%${params.query}%`, params.limit || 20);
-          return { content: [{ type: 'text', text: JSON.stringify(docs, null, 2) }] };
-        }
-
-        case 'kb_get_graph': {
-          const nodes = db.prepare('SELECT id, title, collection_id FROM documents').all();
-          const edges = db.prepare('SELECT source_id, target_id FROM document_links').all();
-          return { content: [{ type: 'text', text: JSON.stringify({ nodes, edges }, null, 2) }] };
-        }
-
-        case 'kb_get_stats': {
-          const docCount = (db.prepare('SELECT COUNT(*) as count FROM documents').get() as any).count;
-          const colCount = (db.prepare('SELECT COUNT(*) as count FROM collections').get() as any).count;
-          const linkCount = (db.prepare('SELECT COUNT(*) as count FROM document_links').get() as any).count;
-          const totalWords = (db.prepare('SELECT SUM(word_count) as total FROM documents').get() as any).total || 0;
-          return { content: [{ type: 'text', text: JSON.stringify({ documents: docCount, collections: colCount, links: linkCount, totalWords }, null, 2) }] };
-        }
-
-        default:
-          throw new Error(`Unknown tool: ${name}`);
-      }
-    } catch (error: any) {
-      return { content: [{ type: 'text', text: JSON.stringify({ error: true, message: error.message }, null, 2) }] };
-    }
+    return handleToolCall(name, args as Record<string, any>, db);
   });
 
   return server;
+
 }
 
 // ============================================================

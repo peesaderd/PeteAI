@@ -1,0 +1,15 @@
+FROM node:20-alpine
+WORKDIR /app
+
+# Copy monorepo config
+COPY package.json ./
+
+# Copy task-manager package
+COPY packages/task-manager/package.json packages/task-manager/tsconfig.json ./packages/task-manager/
+COPY packages/task-manager/src ./packages/task-manager/src
+
+# Install deps
+RUN cd packages/task-manager && npm install && npx tsc
+
+EXPOSE 8081
+CMD ["node", "packages/task-manager/dist/index.js"]

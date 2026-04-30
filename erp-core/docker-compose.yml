@@ -1,13 +1,41 @@
-version: '3.8'
 services:
   erp-core:
     build: .
     ports:
-      - "54509:54509"
+      - 54510:54510
     volumes:
       - ./data:/app/data
       - ./packages/web/dist:/app/packages/web/dist
     environment:
-      - PORT=54509
+      - PORT=54510
+      - ERP_CORE_URL=http://localhost:54510
       - NODE_ENV=production
+      - SIYUAN_API_TOKEN=9w4oqxucqvq1o8sd
+    restart: unless-stopped
+
+  task-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.task-manager
+    ports:
+      - 8082:8081
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=8081
+      - TASK_MANAGER_DB_PATH=/app/data/task-manager.db
+    restart: unless-stopped
+
+  knowledge-base:
+    build:
+      context: .
+      dockerfile: Dockerfile.knowledge-base
+    ports:
+      - 54512:3100
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=3100
+      - KB_DB_PATH=/app/data/knowledge-base.db
+      - KB_DATA_DIR=/app/data/kb-files
     restart: unless-stopped

@@ -442,5 +442,28 @@ function initializeSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_team_members_team ON team_members(team_id);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant ON audit_logs(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
+
+    -- ============================================================
+    -- FINANCE & ACCOUNTING
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS finance_transactions (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      type TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'general',
+      amount REAL NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      description TEXT,
+      reference_type TEXT,
+      reference_id TEXT,
+      transaction_date INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_finance_transactions_date ON finance_transactions(transaction_date);
+
+    CREATE INDEX IF NOT EXISTS idx_finance_transactions_tenant ON finance_transactions(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_finance_transactions_type ON finance_transactions(type);
   `);
 }
