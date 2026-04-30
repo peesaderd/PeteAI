@@ -63,5 +63,30 @@ export function createRouter() {
   const proxyRouter = createProxyRouter();
   router.use('/proxy', proxyRouter);
 
+    // ---- Webhook: SiYuan sync trigger ----
+    router.post('/webhooks/siyuan', async (req: Request, res: Response) => {
+      try {
+        const { docId } = req.body;
+        if (!docId) return res.status(400).json({ error: 'docId required' });
+        const syncUrl = process.env.SYNC_SIYUAN_URL || 'http://sync-siyuan:54513';
+        const response = await fetch(`${syncUrl}/webhook/siyuan`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ docId }),
+        });
+        const data = await response.json();
+        res.json(data);
+      } catch (err: any) {
+        res.status(502).json({ error: `Failed to forward webhook: ${err.message}` });
+      }
+    });
+
+    // ---- Webhook: Generic receiver ----
+    router.post('/webhooks/:source', async (req: Request, res: Response) => {
+      const { source } = req.params;
+      console.log(`[Webhook] Received from ${source}:`, JSON.stringify(req.body).slice(0, 200));
+      res.json({ received: true, source });
+    });
+
   return router;
 }

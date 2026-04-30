@@ -39,3 +39,21 @@ services:
       - KB_DB_PATH=/app/data/knowledge-base.db
       - KB_DATA_DIR=/app/data/kb-files
     restart: unless-stopped
+
+  sync-siyuan:
+    build:
+      context: .
+      dockerfile: Dockerfile.sync-siyuan
+    ports:
+      - 54513:54513
+    volumes:
+      - ./data:/app/data
+    environment:
+      - SYNC_PORT=54513
+      - SIYUAN_URL=http://siyuan:6806
+      - SIYUAN_API_TOKEN=9w4oqxucqvq1o8sd
+      - KB_URL=http://knowledge-base:3100
+      - SYNC_INTERVAL=60000
+    restart: unless-stopped
+    depends_on:
+      - knowledge-base

@@ -1,0 +1,15 @@
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages/sync-siyuan/package.json packages/sync-siyuan/tsconfig.json ./packages/sync-siyuan/
+RUN npm install
+COPY packages/sync-siyuan/src ./packages/sync-siyuan/src
+RUN npx -p typescript tsc -p packages/sync-siyuan/tsconfig.json
+
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=builder /app/packages/sync-siyuan/dist ./dist
+COPY --from=builder /app/packages/sync-siyuan/package.json ./
+RUN npm install --production --ignore-scripts
+EXPOSE 54513
+CMD ["node", "dist/index.js"]
