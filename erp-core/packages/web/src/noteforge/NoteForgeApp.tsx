@@ -82,6 +82,8 @@ export default function NoteForgeApp() {
         searchQuery={searchQuery}
         tags={tags}
         activeTag={activeTag}
+        syncing={syncing}
+        siyuanSync={siyuanSync}
         onAddNote={() => {
           const id = addNote();
           setActiveNote(id);
@@ -93,6 +95,7 @@ export default function NoteForgeApp() {
           deleteNote(id);
           showToast('Note deleted');
         }}
+        onToggleSync={toggleSiyuanSync}
       />
 
       <div className="noteforge-main">

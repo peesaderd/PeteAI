@@ -1,20 +1,92 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Note, Vault, GraphNode, GraphLink } from '../types';
 import { loadVault, saveVault, createNote, generateId, extractLinks, extractTags } from '../utils/storage';
+import { fetchAllDocs, createSiYuanDoc, updateSiYuanDoc, deleteSiYuanDoc, SiYuanDoc } from '../utils/siyuanApi';
+
+const SYNC_KEY = noteforge-siyuan-sync;
+
+function getSyncEnabled(): boolean {
+  try { return localStorage.getItem(SYNC_KEY) === true; } catch { return false; }
+}
+
+function setSyncEnabled(val: boolean) {
+  try { localStorage.setItem(SYNC_KEY, val ? true : false); } catch {}
+}
+
+function siyuanToNote(doc: SiYuanDoc): Note {
+  return {
+    id: doc.id,
+    title: doc.title,
+    content: doc.content,
+    tags: doc.tags,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    links: doc.links,
+  };
+}
+
+function noteToSiYuan(note: Note): { title: string; content: string; tags: string[] } {
+  return {
+    title: note.title,
+    content: note.content,
+    tags: note.tags,
+  };
+}
 
 export function useVault() {
   const [vault, setVault] = useState<Vault>(() => loadVault());
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState();
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [siyuanSync, setSiyuanSync] = useState(() => getSyncEnabled());
+  const syncRef = useRef(false);
 
+  // Auto-save to localStorage
   useEffect(() => {
     saveVault(vault);
   }, [vault]);
 
+  // Sync from SiYuan on first load if enabled
+  useEffect(() => {
+    if (siyuanSync && !syncRef.current) {
+      syncRef.current = true;
+      syncFromSiYuan();
+    }
+  }, [siyuanSync]);
+
+  async function syncFromSiYuan() {
+    setSyncing(true);
+    try {
+      const docs = await fetchAllDocs();
+      if (docs.length === 0) return;
+      const notes: Record<string, Note> = {};
+      const rootIds: string[] = [];
+      for (const doc of docs) {
+        notes[doc.id] = siyuanToNote(doc);
+        rootIds.push(doc.id);
+      }
+      setVault(prev => ({
+        notes,
+        rootIds,
+        activeNoteId: prev.activeNoteId && notes[prev.activeNoteId] ? prev.activeNoteId : rootIds[0] || null,
+      }));
+    } catch (e) {
+      console.error('SiYuan sync error:', e);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   const activeNote = vault.activeNoteId ? vault.notes[vault.activeNoteId] : null;
 
-  const addNote = useCallback((title = 'Untitled') => {
+  const addNote = useCallback(async (title = Untitled) => {
+    let noteId = generateId();
+    if (siyuanSync) {
+      const siyuanId = await createSiYuanDoc(title);
+      if (siyuanId) noteId = siyuanId;
+    }
     const note = createNote(title);
+    note.id = noteId;
     setVault(prev => ({
       ...prev,
       notes: { ...prev.notes, [note.id]: note },
@@ -22,9 +94,9 @@ export function useVault() {
       activeNoteId: note.id,
     }));
     return note.id;
-  }, []);
+  }, [siyuanSync]);
 
-  const updateNote = useCallback((id: string, updates: Partial<Note>) => {
+  const updateNote = useCallback(async (id: string, updates: Partial<Note>) => {
     setVault(prev => {
       const note = prev.notes[id];
       if (!note) return prev;
@@ -37,17 +109,23 @@ export function useVault() {
         updated.links = extractLinks(updates.content);
         updated.tags = extractTags(updates.content);
       }
+      // Sync to SiYuan in background
+      if (siyuanSync && id.length > 20) { // SiYuan IDs are long
+        updateSiYuanDoc(id, updated.content, updated.title, updated.tags).catch(console.error);
+      }
       return {
         ...prev,
         notes: { ...prev.notes, [id]: updated },
       };
     });
-  }, []);
+  }, [siyuanSync]);
 
-  const deleteNote = useCallback((id: string) => {
+  const deleteNote = useCallback(async (id: string) => {
+    if (siyuanSync && id.length > 20) {
+      await deleteSiYuanDoc(id).catch(console.error);
+    }
     setVault(prev => {
       const { [id]: removed, ...rest } = prev.notes;
-      // Remove links to this note
       const cleaned: Record<string, Note> = {};
       for (const [nid, note] of Object.entries(rest)) {
         cleaned[nid] = {
@@ -63,10 +141,18 @@ export function useVault() {
           : prev.activeNoteId,
       };
     });
-  }, []);
+  }, [siyuanSync]);
 
   const setActiveNote = useCallback((id: string | null) => {
     setVault(prev => ({ ...prev, activeNoteId: id }));
+  }, []);
+
+  const toggleSiyuanSync = useCallback(async (enabled: boolean) => {
+    setSyncEnabled(enabled);
+    setSiyuanSync(enabled);
+    if (enabled) {
+      await syncFromSiYuan();
+    }
   }, []);
 
   const getFilteredNotes = useCallback(() => {
@@ -105,7 +191,6 @@ export function useVault() {
       tags: n.tags,
     }));
     const links: GraphLink[] = [];
-    const idToTitle = new Map(notes.map(n => [n.id, n.title]));
     const titleToId = new Map(notes.map(n => [n.title, n.id]));
     for (const note of notes) {
       for (const linkTitle of note.links) {
@@ -125,6 +210,9 @@ export function useVault() {
     setSearchQuery,
     activeTag,
     setActiveTag,
+    syncing,
+    siyuanSync,
+    toggleSiyuanSync,
     addNote,
     updateNote,
     deleteNote,

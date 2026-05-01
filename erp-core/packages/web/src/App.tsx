@@ -3,7 +3,7 @@ import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, BarChart3,
   Warehouse, Factory, BookOpen, Settings, CreditCard,
-  ChevronRight, Menu, X, Globe
+  ChevronRight, Menu, X, Globe, PenTool
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
@@ -13,16 +13,18 @@ import KnowledgeBase from './pages/KnowledgeBase';
 import ProductionPlanning from './pages/ProductionPlanning';
 import ChannelManagement from './pages/ChannelManagement';
 import SettingsPage from './pages/Settings';
+import NoteForgePage from './pages/NoteForge';
 
 const NAV_ITEMS = [
-  { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { path: '/products', icon: Package, label: 'Products' },
-  { path: '/orders', icon: ShoppingCart, label: 'Orders' },
-  { path: '/customers', icon: Users, label: 'Customers' },
-  { path: '/production', icon: Factory, label: 'Production' },
-  { path: '/channels', icon: Globe, label: 'Channels' },
-  { path: '/knowledge-base', icon: BookOpen, label: 'Knowledge Base' },
-  { path: '/settings', icon: Settings, label: 'Settings' },
+  { path: '/', icon: LayoutDashboard, label: 'Dashboard'},
+  { path: '/products', icon: Package, label: 'Products'},
+  { path: '/orders', icon: ShoppingCart, label: 'Orders'},
+  { path: '/customers', icon: Users, label: 'Customers'},
+  { path: '/production', icon: Factory, label: 'Production'},
+  { path: '/channels', icon: Globe, label: 'Channels'},
+  { path: '/knowledge-base', icon: BookOpen, label: 'Knowledge Base'},
+  { path: '/noteforge', icon: PenTool, label: 'NoteForge'},
+  { path: '/settings', icon: Settings, label: 'Settings'},
 ];
 
 export default function App() {
@@ -76,6 +78,7 @@ export default function App() {
             <Route path="/production" element={<ProductionPlanning />} />
             <Route path="/channels" element={<ChannelManagement />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
+            <Route path="/noteforge" element={<NoteForgePage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </div>

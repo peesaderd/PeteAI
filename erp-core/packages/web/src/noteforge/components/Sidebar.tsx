@@ -8,16 +8,21 @@ interface SidebarProps {
   searchQuery: string;
   tags: { name: string; count: number }[];
   activeTag: string | null;
+  syncing?: boolean;
+  siyuanSync?: boolean;
   onAddNote: () => void;
   onSelectNote: (id: string) => void;
   onSearchChange: (q: string) => void;
   onTagSelect: (tag: string | null) => void;
   onDeleteNote: (id: string) => void;
+  onToggleSync?: (enabled: boolean) => void;
 }
 
 export function Sidebar({
   notes, activeNoteId, searchQuery, tags, activeTag,
+  syncing, siyuanSync,
   onAddNote, onSelectNote, onSearchChange, onTagSelect, onDeleteNote,
+  onToggleSync,
 }: SidebarProps) {
   const [view, setView] = useState<'files' | 'tags'>('files');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string } | null>(null);
@@ -48,6 +53,22 @@ export function Sidebar({
           onChange={e => onSearchChange(e.target.value)}
         />
       </div>
+
+      {/* SiYuan Sync Toggle */}
+      {onToggleSync && (
+        <div style={{ padding: '0 12px 8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px' }}>
+            <input
+              type="checkbox"
+              checked={!!siyuanSync}
+              onChange={e => onToggleSync(e.target.checked)}
+              style={{ cursor: 'pointer' }}
+            />
+            <span>🔗 Sync with SiYuan</span>
+            {syncing && <span style={{ color: 'var(--text-muted)' }}>syncing...</span>}
+          </label>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: '2px', padding: '0 12px 8px' }}>
         <button
