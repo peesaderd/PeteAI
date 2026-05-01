@@ -12,7 +12,7 @@ const SIYUAN_TOKEN = process.env.SIYUAN_TOKEN || "9w4oqxucqvq1o8sd";
 interface RoutineJob {
   name: string;
   intervalMs: number;
-  lastRun: number;
+  lastRun?: number;
   run: () => Promise<void>;
   type: "api" | "hybrid";
 }
@@ -251,8 +251,8 @@ export class Scheduler {
       name: j.name,
       intervalMs: j.intervalMs,
       type: j.type,
-      lastRun: j.lastRun,
-      nextRun: j.lastRun + j.intervalMs,
+      lastRun: j.lastRun ?? 0,
+      nextRun: j.lastRun ?? 0 + j.intervalMs,
     }));
   }
 }

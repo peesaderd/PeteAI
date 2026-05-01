@@ -4,6 +4,7 @@
 // ============================================================
 
 import { MemoryStore } from "./memory.js";
+import { execSync } from "child_process";
 
 const ERP_MCP_URL =
   process.env.ERP_MCP_URL || "http://localhost:54510/api/mcp";
@@ -244,6 +245,84 @@ export class ToolRouter {
       },
       category: "orchestrator",
     });
+
+    // ============================================================
+    // Autonomous Agent Tools - let agents probe/execute APIs
+    // ============================================================
+
+    this.registerTool({
+      name: "http_request",
+      description: "Send an HTTP request to any endpoint. Use this to probe APIs, fetch data, or call external services.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"], description: "HTTP method" },
+          url: { type: "string", description: "Full URL (e.g. http://localhost:54511/api/...)" },
+          headers: { type: "object", description: "Optional HTTP headers as key-value pairs" },
+          body: { type: "object", description: "Optional JSON body for POST/PUT/PATCH" },
+          timeout: { type: "number", description: "Request timeout in ms (default: 10000)" },
+        },
+        required: ["method", "url"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "execute_command",
+      description: "Execute a bash command on the server. Use this to run scripts, inspect files, or automate tasks.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Bash command to execute" },
+          timeout: { type: "number", description: "Command timeout in ms (default: 15000)" },
+          workdir: { type: "string", description: "Working directory (default: /root)" },
+        },
+        required: ["command"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "siyuan_get_doc",
+      description: "Get a SiYuan document content by block ID. Uses /api/block/getBlockDOM internally.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Block/document ID" },
+        },
+        required: ["id"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "siyuan_create_doc",
+      description: "Create a new document in SiYuan under the specified notebook.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          notebookId: { type: "string", description: "Notebook ID" },
+          title: { type: "string", description: "Document title" },
+          content: { type: "string", description: "Optional initial content (Markdown)" },
+        },
+        required: ["notebookId", "title"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "siyuan_append_doc",
+      description: "Append content to an existing SiYuan document.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Block/document ID to append to" },
+          content: { type: "string", description: "Content to append (Markdown)" },
+        },
+        required: ["id", "content"],
+      },
+      category: "orchestrator",
+    });
   }
 
   registerTool(tool: ToolDefinition): void {
@@ -481,6 +560,87 @@ export class ToolRouter {
             inputSchema: t.inputSchema,
           })),
         };
+      }
+      case "http_request": {
+        const { method, url, headers, body, timeout } = _args;
+        if (!url) throw new Error("url is required");
+        const fetchOpts: any = { method: method || "GET", headers: headers || {} };
+        if (body && method !== "GET") {
+          fetchOpts.body = typeof body === "string" ? body : JSON.stringify(body);
+          if (!fetchOpts.headers["Content-Type"]) {
+            fetchOpts.headers["Content-Type"] = "application/json";
+          }
+        }
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), timeout || 10000);
+        try {
+          const res = await fetch(url, { ...fetchOpts, signal: controller.signal });
+          const text = await res.text();
+          let data: any;
+          try { data = JSON.parse(text); } catch { data = text; }
+          return { success: res.ok, data };
+        } finally {
+          clearTimeout(t);
+        }
+      }
+      case "execute_command": {
+        const { command, timeout, workdir } = _args;
+        if (!command) throw new Error("command is required");
+        const output = execSync(command, {
+          timeout: timeout || 15000,
+          cwd: workdir || "/root",
+          encoding: "utf-8",
+          maxBuffer: 10 * 1024 * 1024,
+        });
+        return { success: true, data: output };
+      }
+      case "siyuan_get_doc": {
+        const { id } = _args;
+        if (!id) throw new Error("id is required");
+        const siyuanUrl = process.env.SIYUAN_URL || "http://siyuan:54511";
+        const siyuanToken = process.env.SIYUAN_TOKEN || "";
+        const res = await fetch(`${siyuanUrl}/api/block/getBlockDOM`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Token ${siyuanToken}`,
+          },
+          body: JSON.stringify({ id }),
+        });
+        const data = await res.json();
+        return { success: res.ok, data };
+      }
+      case "siyuan_create_doc": {
+        const { notebookId, title, content } = _args;
+        if (!notebookId || !title) throw new Error("notebookId and title are required");
+        const siyuanUrl2 = process.env.SIYUAN_URL || "http://siyuan:54511";
+        const siyuanToken2 = process.env.SIYUAN_TOKEN || "";
+        const res2 = await fetch(`${siyuanUrl2}/api/filetree/createDocWithMd`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Token ${siyuanToken2}`,
+          },
+          body: JSON.stringify({ notebook: notebookId, path: "/" + title, markdown: content || "" }),
+        });
+        const data2 = await res2.json();
+        return { success: res2.ok, data: data2 };
+      }
+      case "siyuan_append_doc": {
+        const { id: blockId, content: appendContent } = _args;
+        if (!blockId || !appendContent) throw new Error("id and content are required");
+        const siyuanUrl3 = process.env.SIYUAN_URL || "http://siyuan:54511";
+        const siyuanToken3 = process.env.SIYUAN_TOKEN || "";
+        const res3 = await fetch(`${siyuanUrl3}/api/block/appendBlock`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Token ${siyuanToken3}`,
+          },
+          body: JSON.stringify({ parentID: blockId, data: appendContent, domain: 0 }),
+        });
+        const data3 = await res3.json();
+        return { success: res3.ok, data: data3 };
       }
       default:
         return {

@@ -70,7 +70,7 @@ app.get('/api/projects', (req, res) => {
 
 app.post('/api/projects', (req, res) => {
   try {
-    const result = handleToolCall('create_project', req.body);
+    const result = handleToolCall('create_project', { ...req.body, tenantId: req.body.tenantId || req.query.tenant_id });
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -88,7 +88,7 @@ app.get('/api/projects/:id', (req, res) => {
 
 app.patch('/api/projects/:id', (req, res) => {
   try {
-    const result = handleToolCall('update_project', { tenantId: req.body.tenant_id, projectId: req.params.id, ...req.body });
+    const result = handleToolCall('update_project', { tenantId: req.body.tenantId || req.query.tenant_id, projectId: req.params.id, ...req.body });
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -125,7 +125,7 @@ app.get('/api/tasks', (req, res) => {
 
 app.post('/api/tasks', (req, res) => {
   try {
-    const result = handleToolCall('create_task', req.body);
+    const result = handleToolCall('create_task', { ...req.body, tenantId: req.body.tenantId || req.query.tenant_id });
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -143,7 +143,7 @@ app.get('/api/tasks/:id', (req, res) => {
 
 app.patch('/api/tasks/:id', (req, res) => {
   try {
-    const result = handleToolCall('update_task', { tenantId: req.body.tenant_id, taskId: req.params.id, ...req.body });
+    const result = handleToolCall('update_task', { tenantId: req.body.tenantId || req.query.tenant_id, taskId: req.params.id, ...req.body });
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

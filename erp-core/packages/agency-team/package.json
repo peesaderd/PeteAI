@@ -1,0 +1,31 @@
+{
+  "name": "@erp-core/agency-team",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "start:brainstorm": "AGENT_ROLE=brainstorm node dist/index.js",
+    "start:rd": "AGENT_ROLE=rd node dist/index.js",
+    "start:design": "AGENT_ROLE=design node dist/index.js",
+    "start:production": "AGENT_ROLE=production node dist/index.js",
+    "start:marketing": "AGENT_ROLE=marketing node dist/index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/uuid": "^9.0.7",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,58 @@
+# ============================================================
+# etsy-connector — Etsy MCP Server with HTTP/SSE transport
+# ============================================================
+# Builds the full etsy-mcp ecosystem (etsy-core, etsy-mcp-shared,
+# etsy-mcp app) and runs it as an HTTP/SSE web service.
+#
+# Usage:
+#   docker build -f Dockerfile.etsy -t etsy-connector .
+#   docker run -p 3456:3456 \
+#     -e ETSY_KEYSTRING=... \
+#     -e ETSY_SHARED_SECRET=... \
+#     -e ERP_CORE_URL=http://erp-core:54509 \
+#     etsy-connector
+# ============================================================
+
+FROM python:3.13-slim AS builder
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+# Copy dependency files first for layer caching
+COPY pyproject.toml uv.lock ./
+COPY apps/etsy/pyproject.toml apps/etsy/
+COPY packages/etsy-core/pyproject.toml packages/etsy-core/
+COPY packages/etsy-mcp-shared/pyproject.toml packages/etsy-mcp-shared/
+
+# Install dependencies
+RUN uv sync --frozen --no-dev --no-install-project
+
+# Copy source code
+COPY . .
+
+# Build the packages
+RUN uv sync --frozen --no-dev
+
+# ============================================================
+FROM python:3.13-slim
+
+# Install uv for runtime
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+# Copy installed environment from builder
+COPY --from=builder /app /app
+
+# Expose the HTTP/SSE port
+EXPOSE 3456
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:3456/health')" || exit 1
+
+# Start the HTTP/SSE server
+ENTRYPOINT ["uv", "run", "--package", "etsy-mcp", "python", "-m", "etsy_mcp.http_server"]
+CMD ["--host", "0.0.0.0", "--port", "3456"]

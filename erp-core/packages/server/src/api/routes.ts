@@ -61,6 +61,8 @@ export function createRouter() {
   router.use('/registry', registryRouter);
 
   const proxyRouter = createProxyRouter();
+// Mount Agency Team API proxy
+  router.use('/agency', proxyRouter);
   router.use('/proxy', proxyRouter);
 
     // ---- Webhook: SiYuan sync trigger ----

@@ -35,7 +35,9 @@ export function createProxyRouter() {
 
     // Build target URL: use the wildcard param (everything after :serviceName/)
     const suffix = req.params[0] ? `/${req.params[0]}` : '/';
-    const targetUrl = `${svc.url}${suffix}`;
+    // Preserve original query string
+    const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    const targetUrl = `${svc.url}${suffix}${queryString}`;
 
     try {
       const fetchOpts: any = {

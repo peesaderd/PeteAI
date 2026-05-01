@@ -175,6 +175,23 @@ export class ServiceRegistry {
           dependencies: ['erp-core'],
           updatedAt: Date.now(),
         },
+        'agency-team': {
+          name: 'Agency Team',
+          description: 'Autonomous AI Agency — 5 AI agents (Brainstorm, R&D, Design, Production, Marketing) ทำงานอัตโนมัติ',
+          url: process.env.AGENCY_TEAM_URL || 'http://localhost:54515',
+          status: 'building',
+          type: 'ai',
+          version: '0.1.0',
+          tools: [
+            'list_agents', 'get_agent', 'agent_heartbeat',
+            'create_task', 'list_tasks', 'get_task',
+            'approve_task', 'reject_task',
+            'get_pending_approvals', 'get_agency_stats',
+            'create_pipeline',
+          ],
+          dependencies: ['erp-core'],
+          updatedAt: Date.now(),
+        },
         'r-d-team': {
           name: 'R&D Team',
           description: 'Research & Development — ค้นหาระบบใหม่, Brainstorm, นำเข้า Production',

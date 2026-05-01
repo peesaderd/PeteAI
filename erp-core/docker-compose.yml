@@ -57,3 +57,22 @@ services:
     restart: unless-stopped
     depends_on:
       - knowledge-base
+
+  ai-orchestrator:
+    build:
+      context: ./packages/ai-orchestrator
+      dockerfile: Dockerfile
+    ports:
+      - 54516:54516
+    volumes:
+      - ./data:/app/data
+    environment:
+      - ORCHESTRATOR_PORT=54516
+      - ORCHESTRATOR_DB_PATH=/app/data/orchestrator.db
+      - ERP_MCP_URL=http://erp-core:54510/api/mcp
+      - AGENCY_API_URL=http://autonomous-agency:80
+      - SIYUAN_URL=http://172.18.0.1:54511
+      - SIYUAN_TOKEN=9w4oqxucqvq1o8sd
+    restart: unless-stopped
+    depends_on:
+      - erp-core
