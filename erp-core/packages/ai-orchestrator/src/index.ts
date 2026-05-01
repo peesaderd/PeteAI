@@ -8,6 +8,7 @@ import cors from "cors";
 import { MemoryStore } from "./memory.js";
 import { ToolRouter } from "./tool-router.js";
 import { WebhookHandler, type WebhookEvent } from "./webhooks.js";
+import { Scheduler } from "./scheduler.js";
 
 const PORT = parseInt(process.env.ORCHESTRATOR_PORT || "54516", 10);
 
@@ -20,6 +21,10 @@ async function main() {
   const memory = new MemoryStore();
   const toolRouter = new ToolRouter(memory);
   const webhookHandler = new WebhookHandler(toolRouter, memory);
+
+  // Initialize scheduler for routine jobs
+  const scheduler = new Scheduler(toolRouter, memory);
+  scheduler.registerDefaultJobs();
 
   // ============================================================
   // Health & Info
@@ -244,6 +249,9 @@ async function main() {
   // ============================================================
   // Start Server
   // ============================================================
+
+  // Start scheduler
+  scheduler.start();
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[AI Orchestrator] Running on http://0.0.0.0:${PORT}`);
