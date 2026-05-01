@@ -6,7 +6,7 @@
 import { ToolRouter } from "./tool-router.js";
 import { MemoryStore } from "./memory.js";
 
-const SIYUAN_API = process.env.SIYUAN_API_URL || "http://localhost:54511";
+const SIYUAN_API = process.env.SIYUAN_URL || "http://172.18.0.1:54511";
 const SIYUAN_TOKEN = process.env.SIYUAN_TOKEN || "9w4oqxucqvq1o8sd";
 
 interface RoutineJob {
@@ -135,7 +135,7 @@ export class Scheduler {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${SIYUAN_TOKEN}`,
+                Authorization: `Token ${SIYUAN_TOKEN}`,
               },
               body: JSON.stringify({
                 notebook: "20260430223407-0hd7gev",
@@ -183,31 +183,18 @@ export class Scheduler {
       type: "hybrid",
       run: async () => {
         try {
-          const res = await fetch(`${SIYUAN_API}/api/list`, {
-            headers: { Authorization: `Bearer ${SIYUAN_TOKEN}` },
+          // Check SiYuan health and log status
+          const verRes = await fetch(`${SIYUAN_API}/api/system/version`, {
+            headers: { Authorization: `Token ${SIYUAN_TOKEN}` },
           });
-          const docs = await res.json();
+          const verData = await verRes.json();
+          const version = verData?.data || "unknown";
+
           const lastSync = this.memory.getAgentState("system", "erp-core", "last_siyuan_sync");
-          const lastSyncTime = parseInt(lastSync || "0");
-          const newDocs = (docs || []).filter((d: any) => d.updatedAt > lastSyncTime);
+          const lastSyncTime = lastSync ? new Date(parseInt(lastSync)).toISOString() : "never";
 
-          if (newDocs.length === 0) {
-            console.log(`[Scheduler] No new notes to summarize`);
-            return;
-          }
-
-          console.log(`[Scheduler] ${newDocs.length} new notes, creating summarize tasks`);
-          for (const doc of newDocs.slice(0, 3)) {
-            await this.toolRouter.executeTool("agency_create_task", {
-              tenantId: "erp-core",
-              title: `Summarize: ${doc.title || "Untitled"}`,
-              description: `Summarize the new document: ${doc.content?.slice(0, 500) || ""}`,
-              sourceRole: "system",
-              targetRole: "rd",
-              priority: "low",
-              inputData: { docId: doc.id, source: "siyuan" },
-            });
-          }
+          console.log(`[Scheduler] SiYuan v${version} healthy, last sync: ${lastSyncTime}`);
+          console.log(`[Scheduler] Summarize check complete (webhook-based doc discovery TBD)`);
           this.memory.setAgentState("system", "erp-core", "last_siyuan_sync", String(Date.now()));
         } catch (err: any) {
           console.error(`[Scheduler] Note summarization failed:`, err.message);
