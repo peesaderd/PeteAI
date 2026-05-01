@@ -290,6 +290,338 @@ export function createRouter() {
       } catch (err: any) { res.status(400).json({ error: err.message }); }
     });
 
+    // ---- Procurement & Supply Chain REST API ----
+
+    // Suppliers
+    router.get('/procurement/suppliers', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { status, search, limit = '50', offset = '0' } = req.query;
+        let sql = 'SELECT * FROM suppliers WHERE tenant_id = ?';
+        const params: any[] = [tenantId];
+        if (status) { sql += ' AND status = ?'; params.push(status); }
+        if (search) { sql += ' AND (name LIKE ? OR code LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
+        sql += ' ORDER BY name ASC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), parseInt(offset as string));
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.get('/procurement/suppliers/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const result = db.prepare('SELECT * FROM suppliers WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!result) return res.status(404).json({ error: 'Supplier not found' });
+        res.json(result);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/procurement/suppliers', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { code, name, contactPerson, email, phone, address, taxId, paymentTerms, leadTimeDays, notes } = req.body;
+        if (!code || !name) return res.status(400).json({ error: 'code, name required' });
+        const db = getDatabase();
+        const id = 'sup_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare(`INSERT INTO suppliers (id, tenant_id, code, name, contact_person, email, phone, address, tax_id, payment_terms, lead_time_days, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`).run(id, tenantId, code, name, contactPerson || null, email || null, phone || null, address || null, taxId || null, paymentTerms || 'net30', leadTimeDays || 7, notes || null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/procurement/suppliers/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM suppliers WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!existing) return res.status(404).json({ error: 'Supplier not found' });
+        const { name, contactPerson, email, phone, address, taxId, paymentTerms, leadTimeDays, status, notes } = req.body;
+        const now = Date.now();
+        db.prepare(`UPDATE suppliers SET name = ?, contact_person = ?, email = ?, phone = ?, address = ?, tax_id = ?, payment_terms = ?, lead_time_days = ?, status = ?, notes = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`).run(name ?? existing.name, contactPerson ?? existing.contact_person, email ?? existing.email, phone ?? existing.phone, address ?? existing.address, taxId ?? existing.tax_id, paymentTerms ?? existing.payment_terms, leadTimeDays ?? existing.lead_time_days, status ?? existing.status, notes ?? existing.notes, now, req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Supplier Products
+    router.get('/procurement/suppliers/:id/products', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { limit = '50', offset = '0' } = req.query;
+        const result = db.prepare('SELECT sp.*, p.name as product_name, p.sku as product_sku FROM supplier_products sp JOIN products p ON p.id = sp.product_id WHERE sp.supplier_id = ? AND sp.tenant_id = ? ORDER BY sp.is_preferred DESC LIMIT ? OFFSET ?').all(req.params.id, tenantId, parseInt(limit as string), parseInt(offset as string));
+        res.json(result);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/procurement/supplier-products', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { supplierId, productId, supplierSku, unitCost, moq, leadTimeDays, isPreferred } = req.body;
+        if (!supplierId || !productId || unitCost === undefined) return res.status(400).json({ error: 'supplierId, productId, unitCost required' });
+        const db = getDatabase();
+        const id = 'sp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare(`INSERT INTO supplier_products (id, tenant_id, supplier_id, product_id, supplier_sku, unit_cost, moq, lead_time_days, is_preferred, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, supplierId, productId, supplierSku || null, unitCost, moq || 1, leadTimeDays || null, isPreferred ? 1 : 0, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Purchase Orders
+    router.get('/procurement/purchase-orders', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { status, supplierId, limit = '50', offset = '0' } = req.query;
+        let sql = 'SELECT po.*, s.name as supplier_name FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id WHERE po.tenant_id = ?';
+        const params: any[] = [tenantId];
+        if (status) { sql += ' AND po.status = ?'; params.push(status); }
+        if (supplierId) { sql += ' AND po.supplier_id = ?'; params.push(supplierId); }
+        sql += ' ORDER BY po.created_at DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), parseInt(offset as string));
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.get('/procurement/purchase-orders/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const po = db.prepare('SELECT po.*, s.name as supplier_name FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id WHERE po.id = ? AND po.tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+        po.items = db.prepare('SELECT poi.*, p.name as product_name, p.sku as product_sku FROM purchase_order_items poi JOIN products p ON p.id = poi.product_id WHERE poi.po_id = ?').all(req.params.id);
+        res.json(po);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/procurement/purchase-orders', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { poNumber, supplierId, expectedDate, notes, shippingAddress, items } = req.body;
+        if (!poNumber || !supplierId || !items || items.length === 0) return res.status(400).json({ error: 'poNumber, supplierId, and items required' });
+        const db = getDatabase();
+        const id = 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        let subtotal = 0;
+        for (const item of items) subtotal += item.quantityOrdered * item.unitCost;
+        db.prepare(`INSERT INTO purchase_orders (id, tenant_id, po_number, supplier_id, status, order_date, subtotal, total_amount, notes, shipping_address, created_at, updated_at) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, poNumber, supplierId, now, subtotal, subtotal, notes || null, shippingAddress || null, now, now);
+        for (const item of items) {
+          const itemId = 'poi_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+          db.prepare(`INSERT INTO purchase_order_items (id, tenant_id, po_id, product_id, quantity_ordered, quantity_received, unit_cost, total_cost, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`).run(itemId, tenantId, id, item.productId, item.quantityOrdered, item.unitCost, item.quantityOrdered * item.unitCost, now, now);
+        }
+        res.json({ id, poNumber, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/procurement/purchase-orders/:id/status', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { status, notes } = req.body;
+        if (!status) return res.status(400).json({ error: 'status required' });
+        const existing = db.prepare('SELECT * FROM purchase_orders WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!existing) return res.status(404).json({ error: 'Purchase order not found' });
+        const now = Date.now();
+        db.prepare(`UPDATE purchase_orders SET status = ?, notes = CASE WHEN ? IS NOT NULL THEN ? ELSE notes END, updated_at = ? WHERE id = ? AND tenant_id = ?`).run(status, notes, notes, now, req.params.id, tenantId);
+        res.json({ id: req.params.id, status, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/procurement/purchase-orders/:id/receive', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { items, warehouseId } = req.body;
+        if (!items || items.length === 0) return res.status(400).json({ error: 'items required' });
+        const now = Date.now();
+        const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+        let allReceived = true;
+        for (const item of items) {
+          const poi = db.prepare('SELECT * FROM purchase_order_items WHERE id = ? AND po_id = ?').get(item.itemId, req.params.id) as any;
+          if (!poi) return res.status(404).json({ error: `Item ${item.itemId} not found` });
+          const newReceived = poi.quantity_received + item.quantityReceived;
+          db.prepare('UPDATE purchase_order_items SET quantity_received = ?, updated_at = ? WHERE id = ?').run(newReceived, now, item.itemId);
+          if (newReceived < poi.quantity_ordered) allReceived = false;
+          db.prepare('UPDATE products SET quantity = quantity + ?, updated_at = ? WHERE id = ?').run(item.quantityReceived, now, poi.product_id);
+          const movId = 'mov_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+          db.prepare(`INSERT INTO inventory_movements (id, tenant_id, product_id, to_location_id, quantity, type, reference_type, reference_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'receipt', 'purchase_order', ?, ?, ?)`).run(movId, tenantId, poi.product_id, warehouseId || null, item.quantityReceived, req.params.id, now, now);
+        }
+        const newStatus = allReceived ? 'received' : 'partially_received';
+        db.prepare('UPDATE purchase_orders SET status = ?, received_date = ?, updated_at = ? WHERE id = ?').run(newStatus, now, now, req.params.id);
+        res.json({ id: req.params.id, status: newStatus, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Warehouses
+    router.get('/procurement/warehouses', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { type, limit = '50', offset = '0' } = req.query;
+        let sql = 'SELECT * FROM warehouse_locations WHERE tenant_id = ?';
+        const params: any[] = [tenantId];
+        if (type) { sql += ' AND type = ?'; params.push(type); }
+        sql += ' ORDER BY name ASC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), parseInt(offset as string));
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/procurement/warehouses', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { code, name, type = 'warehouse', address } = req.body;
+        if (!code || !name) return res.status(400).json({ error: 'code, name required' });
+        const db = getDatabase();
+        const id = 'wh_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare(`INSERT INTO warehouse_locations (id, tenant_id, code, name, type, address, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, code, name, type, address || null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Warehouse Bins
+    router.get('/procurement/warehouses/:id/bins', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { zone, limit = '50', offset = '0' } = req.query;
+        let sql = 'SELECT * FROM warehouse_bins WHERE tenant_id = ? AND warehouse_id = ?';
+        const params: any[] = [tenantId, req.params.id];
+        if (zone) { sql += ' AND zone = ?'; params.push(zone); }
+        sql += ' ORDER BY code ASC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), parseInt(offset as string));
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/procurement/warehouse-bins', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { warehouseId, code, zone, maxCapacity } = req.body;
+        if (!warehouseId || !code) return res.status(400).json({ error: 'warehouseId, code required' });
+        const db = getDatabase();
+        const id = 'bin_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare(`INSERT INTO warehouse_bins (id, tenant_id, warehouse_id, code, zone, max_capacity, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, warehouseId, code, zone || null, maxCapacity || null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Inventory Movements
+    router.get('/procurement/inventory-movements', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { productId, type, limit = '50', offset = '0' } = req.query;
+        let sql = 'SELECT im.*, p.name as product_name, p.sku as product_sku FROM inventory_movements im JOIN products p ON p.id = im.product_id WHERE im.tenant_id = ?';
+        const params: any[] = [tenantId];
+        if (productId) { sql += ' AND im.product_id = ?'; params.push(productId); }
+        if (type) { sql += ' AND im.type = ?'; params.push(type); }
+        sql += ' ORDER BY im.created_at DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), parseInt(offset as string));
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/procurement/inventory/transfer', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { productId, quantity, fromLocationId, toLocationId, notes } = req.body;
+        if (!productId || !quantity || quantity <= 0) return res.status(400).json({ error: 'productId and positive quantity required' });
+        const db = getDatabase();
+        const now = Date.now();
+        if (fromLocationId) db.prepare('UPDATE products SET quantity = quantity - ?, updated_at = ? WHERE id = ?').run(quantity, now, productId);
+        if (toLocationId) db.prepare('UPDATE products SET quantity = quantity + ?, updated_at = ? WHERE id = ?').run(quantity, now, productId);
+        const id = 'mov_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        db.prepare(`INSERT INTO inventory_movements (id, tenant_id, product_id, from_location_id, to_location_id, quantity, type, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'transfer', ?, ?, ?)`).run(id, tenantId, productId, fromLocationId || null, toLocationId || null, quantity, notes || null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Drop Ship Orders
+    router.get('/procurement/drop-ship-orders', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { status, supplierId, limit = '50', offset = '0' } = req.query;
+        let sql = 'SELECT dso.*, s.name as supplier_name FROM drop_ship_orders dso JOIN suppliers s ON s.id = dso.supplier_id WHERE dso.tenant_id = ?';
+        const params: any[] = [tenantId];
+        if (status) { sql += ' AND dso.status = ?'; params.push(status); }
+        if (supplierId) { sql += ' AND dso.supplier_id = ?'; params.push(supplierId); }
+        sql += ' ORDER BY dso.created_at DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), parseInt(offset as string));
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/procurement/drop-ship-orders/:id/status', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { status, trackingNumber, notes } = req.body;
+        if (!status) return res.status(400).json({ error: 'status required' });
+        const existing = db.prepare('SELECT * FROM drop_ship_orders WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!existing) return res.status(404).json({ error: 'Drop ship order not found' });
+        const now = Date.now();
+        db.prepare(`UPDATE drop_ship_orders SET status = ?, tracking_number = COALESCE(?, tracking_number), notes = COALESCE(?, notes), updated_at = ? WHERE id = ? AND tenant_id = ?`).run(status, trackingNumber || null, notes || null, now, req.params.id, tenantId);
+        res.json({ id: req.params.id, status, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Shipping Tracking
+    router.get('/procurement/shipping-tracking', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { referenceType, referenceId } = req.query;
+        if (!referenceType || !referenceId) return res.status(400).json({ error: 'referenceType and referenceId required' });
+        res.json(db.prepare('SELECT * FROM shipping_tracking WHERE reference_type = ? AND reference_id = ? AND tenant_id = ?').all(referenceType, referenceId, tenantId));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/procurement/shipping-tracking', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { referenceType, referenceId, carrier, trackingNumber, status, notes } = req.body;
+        if (!referenceType || !referenceId) return res.status(400).json({ error: 'referenceType, referenceId required' });
+        const db = getDatabase();
+        const now = Date.now();
+        const existing = db.prepare('SELECT * FROM shipping_tracking WHERE reference_type = ? AND reference_id = ? AND tenant_id = ?').get(referenceType, referenceId, tenantId) as any;
+        if (existing) {
+          db.prepare(`UPDATE shipping_tracking SET carrier = COALESCE(?, carrier), tracking_number = COALESCE(?, tracking_number), status = COALESCE(?, status), notes = COALESCE(?, notes), updated_at = ? WHERE id = ?`).run(carrier || null, trackingNumber || null, status || null, notes || null, now, existing.id);
+          res.json({ id: existing.id, success: true });
+        } else {
+          const id = 'st_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+          db.prepare(`INSERT INTO shipping_tracking (id, tenant_id, reference_type, reference_id, carrier, tracking_number, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, referenceType, referenceId, carrier || null, trackingNumber || null, status || 'pending', notes || null, now, now);
+          res.json({ id, success: true });
+        }
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
     // ---- Webhook: SiYuan sync trigger ----
     router.post('/webhooks/siyuan', async (req: Request, res: Response) => {
       try {

@@ -79,6 +79,9 @@ services:
     - ai-orchestrator
     - redis
     environment:
+    - SIYUAN_URL=http://siyuan:6806
+    - SIYUAN_TOKEN=
+    - REPO_ROOT=/repo
     - SYSTEM_AGENT_PORT=54520
     - ORCHESTRATOR_URL=http://ai-orchestrator:54516
     - REDIS_URL=redis://redis:6379
@@ -86,6 +89,7 @@ services:
     - 54520:54520
     restart: unless-stopped
     volumes:
+    - ..:/repo:ro
     - /var/run/docker.sock:/var/run/docker.sock
     - /root/.openhands:/root/.openhands:ro
     - ./packages/ai-orchestrator/.conversations:/conversations:ro

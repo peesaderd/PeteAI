@@ -659,6 +659,194 @@ const TOOLS = [
     userId: z.string().describe('User ID'),
   })),
 
+  // ---- PROCUREMENT & SUPPLY CHAIN ----
+
+  tool('list_suppliers', 'List all suppliers', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    status: z.string().optional().describe('Filter by status (active/inactive/blacklisted)'),
+    search: z.string().optional().describe('Search by name or code'),
+    limit: z.number().optional().describe('Max results'),
+    offset: z.number().optional().describe('Offset'),
+  })),
+
+  tool('get_supplier', 'Get supplier details', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    supplierId: z.string().describe('Supplier ID'),
+  })),
+
+  tool('create_supplier', 'Create a new supplier', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    code: z.string().describe('Supplier code'),
+    name: z.string().describe('Supplier name'),
+    contactPerson: z.string().optional().describe('Contact person'),
+    email: z.string().optional().describe('Email'),
+    phone: z.string().optional().describe('Phone'),
+    address: z.string().optional().describe('Address'),
+    taxId: z.string().optional().describe('Tax ID'),
+    paymentTerms: z.string().optional().describe('Payment terms (e.g. net30)'),
+    leadTimeDays: z.number().optional().describe('Lead time in days'),
+    notes: z.string().optional().describe('Notes'),
+  })),
+
+  tool('update_supplier', 'Update a supplier', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    supplierId: z.string().describe('Supplier ID'),
+    name: z.string().optional().describe('Supplier name'),
+    contactPerson: z.string().optional().describe('Contact person'),
+    email: z.string().optional().describe('Email'),
+    phone: z.string().optional().describe('Phone'),
+    address: z.string().optional().describe('Address'),
+    taxId: z.string().optional().describe('Tax ID'),
+    paymentTerms: z.string().optional().describe('Payment terms'),
+    leadTimeDays: z.number().optional().describe('Lead time in days'),
+    status: z.string().optional().describe('Status (active/inactive/blacklisted)'),
+    notes: z.string().optional().describe('Notes'),
+  })),
+
+  tool('list_supplier_products', 'List products a supplier provides', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    supplierId: z.string().describe('Supplier ID'),
+    limit: z.number().optional().describe('Max results'),
+    offset: z.number().optional().describe('Offset'),
+  })),
+
+  tool('create_supplier_product', 'Link a product to a supplier', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    supplierId: z.string().describe('Supplier ID'),
+    productId: z.string().describe('Product ID'),
+    supplierSku: z.string().optional().describe('Supplier SKU'),
+    unitCost: z.number().describe('Unit cost from supplier'),
+    moq: z.number().optional().describe('Minimum order quantity'),
+    leadTimeDays: z.number().optional().describe('Lead time in days'),
+    isPreferred: z.boolean().optional().describe('Is preferred supplier for this product'),
+  })),
+
+  tool('list_purchase_orders', 'List purchase orders', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    status: z.string().optional().describe('Filter by status'),
+    supplierId: z.string().optional().describe('Filter by supplier'),
+    limit: z.number().optional().describe('Max results'),
+    offset: z.number().optional().describe('Offset'),
+  })),
+
+  tool('get_purchase_order', 'Get purchase order details', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    poId: z.string().describe('Purchase Order ID'),
+  })),
+
+  tool('create_purchase_order', 'Create a purchase order', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    poNumber: z.string().describe('PO number'),
+    supplierId: z.string().describe('Supplier ID'),
+    expectedDate: z.number().optional().describe('Expected delivery date (epoch ms)'),
+    notes: z.string().optional().describe('Notes'),
+    shippingAddress: z.string().optional().describe('Shipping address'),
+    items: z.array(z.object({
+      productId: z.string().describe('Product ID'),
+      quantityOrdered: z.number().describe('Quantity ordered'),
+      unitCost: z.number().describe('Unit cost'),
+    })).describe('PO line items'),
+  })),
+
+  tool('update_purchase_order_status', 'Update purchase order status', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    poId: z.string().describe('Purchase Order ID'),
+    status: z.enum(['draft','pending_approval','approved','sent','confirmed','partially_received','received','cancelled']).describe('New status'),
+    notes: z.string().optional().describe('Status change notes'),
+  })),
+
+  tool('receive_purchase_order', 'Receive items against a purchase order', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    poId: z.string().describe('Purchase Order ID'),
+    items: z.array(z.object({
+      itemId: z.string().describe('PO item ID'),
+      quantityReceived: z.number().describe('Quantity received'),
+    })).describe('Items being received'),
+    warehouseId: z.string().optional().describe('Warehouse to receive into'),
+  })),
+
+  tool('list_warehouses', 'List warehouse locations', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    type: z.string().optional().describe('Filter by type'),
+    limit: z.number().optional().describe('Max results'),
+    offset: z.number().optional().describe('Offset'),
+  })),
+
+  tool('create_warehouse', 'Create a warehouse location', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    code: z.string().describe('Warehouse code'),
+    name: z.string().describe('Warehouse name'),
+    type: z.string().optional().describe('Type (warehouse/store/storage/returns/transit)'),
+    address: z.string().optional().describe('Address'),
+  })),
+
+  tool('list_warehouse_bins', 'List bins in a warehouse', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    warehouseId: z.string().describe('Warehouse ID'),
+    zone: z.string().optional().describe('Filter by zone'),
+    limit: z.number().optional().describe('Max results'),
+    offset: z.number().optional().describe('Offset'),
+  })),
+
+  tool('create_warehouse_bin', 'Create a bin in a warehouse', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    warehouseId: z.string().describe('Warehouse ID'),
+    code: z.string().describe('Bin code'),
+    zone: z.string().optional().describe('Zone'),
+    maxCapacity: z.number().optional().describe('Max capacity'),
+  })),
+
+  tool('transfer_inventory', 'Transfer inventory between locations', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().describe('Product ID'),
+    quantity: z.number().describe('Quantity to transfer'),
+    fromLocationId: z.string().optional().describe('Source location ID'),
+    toLocationId: z.string().optional().describe('Destination location ID'),
+    fromBinId: z.string().optional().describe('Source bin ID'),
+    toBinId: z.string().optional().describe('Destination bin ID'),
+    notes: z.string().optional().describe('Transfer notes'),
+  })),
+
+  tool('list_inventory_movements', 'List inventory movements', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().optional().describe('Filter by product'),
+    type: z.string().optional().describe('Filter by type (transfer/receipt/adjustment/issue/return)'),
+    limit: z.number().optional().describe('Max results'),
+    offset: z.number().optional().describe('Offset'),
+  })),
+
+  tool('list_drop_ship_orders', 'List drop ship orders', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    status: z.string().optional().describe('Filter by status'),
+    supplierId: z.string().optional().describe('Filter by supplier'),
+    limit: z.number().optional().describe('Max results'),
+    offset: z.number().optional().describe('Offset'),
+  })),
+
+  tool('update_drop_ship_status', 'Update drop ship order status', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    dropShipId: z.string().describe('Drop ship order ID'),
+    status: z.enum(['pending','sent','confirmed','shipped','delivered','cancelled']).describe('New status'),
+    trackingNumber: z.string().optional().describe('Tracking number'),
+    notes: z.string().optional().describe('Notes'),
+  })),
+
+  tool('get_shipping_tracking', 'Get shipping tracking info', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    referenceType: z.string().describe('Reference type (purchase_order/sales_order/drop_ship)'),
+    referenceId: z.string().describe('Reference ID'),
+  })),
+
+  tool('update_shipping_tracking', 'Update shipping tracking info', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    referenceType: z.string().describe('Reference type'),
+    referenceId: z.string().describe('Reference ID'),
+    carrier: z.string().optional().describe('Carrier name'),
+    trackingNumber: z.string().optional().describe('Tracking number'),
+    status: z.string().optional().describe('Status'),
+    notes: z.string().optional().describe('Notes'),
+  })),
+
   tool('get_audit_logs', 'Get audit logs', z.object({
     tenantId: z.string().describe('Tenant ID'),
     limit: z.number().optional().describe('Max logs'),
@@ -1291,6 +1479,241 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       const rbac = new RBACManager();
       const result = rbac.getAuditLogs(tenantId, args.limit, args.offset);
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    // ---- PROCUREMENT & SUPPLY CHAIN HANDLERS ----
+
+    case 'list_suppliers': {
+      const { status, search, limit = 50, offset = 0 } = args;
+      let sql = 'SELECT * FROM suppliers WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (status) { sql += ' AND status = ?'; params.push(status); }
+      if (search) { sql += ' AND (name LIKE ? OR code LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
+      sql += ' ORDER BY name ASC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const result = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_supplier': {
+      const { supplierId } = args;
+      const result = db.prepare('SELECT * FROM suppliers WHERE id = ? AND tenant_id = ?').get(supplierId, tenantId);
+      if (!result) throw new Error('Supplier not found');
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'create_supplier': {
+      const { code, name, contactPerson, email, phone, address, taxId, paymentTerms, leadTimeDays, notes } = args;
+      const id = 'sup_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO suppliers (id, tenant_id, code, name, contact_person, email, phone, address, tax_id, payment_terms, lead_time_days, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`).run(id, tenantId, code, name, contactPerson || null, email || null, phone || null, address || null, taxId || null, paymentTerms || 'net30', leadTimeDays || 7, notes || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'update_supplier': {
+      const { supplierId, name, contactPerson, email, phone, address, taxId, paymentTerms, leadTimeDays, status, notes } = args;
+      const now = Date.now();
+      const existing = db.prepare('SELECT * FROM suppliers WHERE id = ? AND tenant_id = ?').get(supplierId, tenantId) as any;
+      if (!existing) throw new Error('Supplier not found');
+      db.prepare(`UPDATE suppliers SET name = ?, contact_person = ?, email = ?, phone = ?, address = ?, tax_id = ?, payment_terms = ?, lead_time_days = ?, status = ?, notes = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`).run(name ?? existing.name, contactPerson ?? existing.contact_person, email ?? existing.email, phone ?? existing.phone, address ?? existing.address, taxId ?? existing.tax_id, paymentTerms ?? existing.payment_terms, leadTimeDays ?? existing.lead_time_days, status ?? existing.status, notes ?? existing.notes, now, supplierId, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify({ id: supplierId, success: true }, null, 2) }] };
+    }
+
+    case 'list_supplier_products': {
+      const { supplierId, limit = 50, offset = 0 } = args;
+      const result = db.prepare('SELECT sp.*, p.name as product_name, p.sku as product_sku FROM supplier_products sp JOIN products p ON p.id = sp.product_id WHERE sp.supplier_id = ? AND sp.tenant_id = ? ORDER BY sp.is_preferred DESC LIMIT ? OFFSET ?').all(supplierId, tenantId, limit, offset);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'create_supplier_product': {
+      const { supplierId, productId, supplierSku, unitCost, moq, leadTimeDays, isPreferred } = args;
+      const id = 'sp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO supplier_products (id, tenant_id, supplier_id, product_id, supplier_sku, unit_cost, moq, lead_time_days, is_preferred, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, supplierId, productId, supplierSku || null, unitCost, moq || 1, leadTimeDays || null, isPreferred ? 1 : 0, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'list_purchase_orders': {
+      const { status, supplierId, limit = 50, offset = 0 } = args;
+      let sql = 'SELECT po.*, s.name as supplier_name FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id WHERE po.tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (status) { sql += ' AND po.status = ?'; params.push(status); }
+      if (supplierId) { sql += ' AND po.supplier_id = ?'; params.push(supplierId); }
+      sql += ' ORDER BY po.created_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const result = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'get_purchase_order': {
+      const { poId } = args;
+      const po = db.prepare('SELECT po.*, s.name as supplier_name FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id WHERE po.id = ? AND po.tenant_id = ?').get(poId, tenantId) as any;
+      if (!po) throw new Error('Purchase order not found');
+      const items = db.prepare('SELECT poi.*, p.name as product_name, p.sku as product_sku FROM purchase_order_items poi JOIN products p ON p.id = poi.product_id WHERE poi.po_id = ?').all(poId);
+      po.items = items;
+      return { content: [{ type: 'text', text: JSON.stringify(po, null, 2) }] };
+    }
+
+    case 'create_purchase_order': {
+      const { poNumber, supplierId, expectedDate, notes, shippingAddress, items } = args;
+      if (!items || items.length === 0) throw new Error('At least one item is required');
+      const id = 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      let subtotal = 0;
+      for (const item of items) {
+        subtotal += item.quantityOrdered * item.unitCost;
+      }
+      db.prepare(`INSERT INTO purchase_orders (id, tenant_id, po_number, supplier_id, status, order_date, subtotal, total_amount, notes, shipping_address, created_at, updated_at) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, poNumber, supplierId, now, subtotal, subtotal, notes || null, shippingAddress || null, now, now);
+      for (const item of items) {
+        const itemId = 'poi_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        db.prepare(`INSERT INTO purchase_order_items (id, tenant_id, po_id, product_id, quantity_ordered, quantity_received, unit_cost, total_cost, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`).run(itemId, tenantId, id, item.productId, item.quantityOrdered, item.unitCost, item.quantityOrdered * item.unitCost, now, now);
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({ id, poNumber, success: true }, null, 2) }] };
+    }
+
+    case 'update_purchase_order_status': {
+      const { poId, status, notes } = args;
+      const now = Date.now();
+      const existing = db.prepare('SELECT * FROM purchase_orders WHERE id = ? AND tenant_id = ?').get(poId, tenantId) as any;
+      if (!existing) throw new Error('Purchase order not found');
+      db.prepare(`UPDATE purchase_orders SET status = ?, notes = CASE WHEN ? IS NOT NULL THEN ? ELSE notes END, updated_at = ? WHERE id = ? AND tenant_id = ?`).run(status, notes, notes, now, poId, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify({ id: poId, status, success: true }, null, 2) }] };
+    }
+
+    case 'receive_purchase_order': {
+      const { poId, items, warehouseId } = args;
+      const now = Date.now();
+      const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ? AND tenant_id = ?').get(poId, tenantId) as any;
+      if (!po) throw new Error('Purchase order not found');
+      let allReceived = true;
+      for (const item of items) {
+        const poi = db.prepare('SELECT * FROM purchase_order_items WHERE id = ? AND po_id = ?').get(item.itemId, poId) as any;
+        if (!poi) throw new Error(`Item ${item.itemId} not found in PO`);
+        const newReceived = poi.quantity_received + item.quantityReceived;
+        db.prepare('UPDATE purchase_order_items SET quantity_received = ?, updated_at = ? WHERE id = ?').run(newReceived, now, item.itemId);
+        if (newReceived < poi.quantity_ordered) allReceived = false;
+        // Update product inventory
+        const product = db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').get(poi.product_id, tenantId) as any;
+        if (product) {
+          db.prepare('UPDATE products SET quantity = quantity + ?, updated_at = ? WHERE id = ?').run(item.quantityReceived, now, poi.product_id);
+        }
+        // Record inventory movement
+        const movId = 'mov_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        db.prepare(`INSERT INTO inventory_movements (id, tenant_id, product_id, to_location_id, quantity, type, reference_type, reference_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'receipt', 'purchase_order', ?, ?, ?)`).run(movId, tenantId, poi.product_id, warehouseId || null, item.quantityReceived, poId, now, now);
+      }
+      const newStatus = allReceived ? 'received' : 'partially_received';
+      db.prepare('UPDATE purchase_orders SET status = ?, received_date = ?, updated_at = ? WHERE id = ?').run(newStatus, now, now, poId);
+      return { content: [{ type: 'text', text: JSON.stringify({ id: poId, status: newStatus, success: true }, null, 2) }] };
+    }
+
+    case 'list_warehouses': {
+      const { type, limit = 50, offset = 0 } = args;
+      let sql = 'SELECT * FROM warehouse_locations WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (type) { sql += ' AND type = ?'; params.push(type); }
+      sql += ' ORDER BY name ASC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const result = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'create_warehouse': {
+      const { code, name, type = 'warehouse', address } = args;
+      const id = 'wh_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO warehouse_locations (id, tenant_id, code, name, type, address, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, code, name, type, address || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'list_warehouse_bins': {
+      const { warehouseId, zone, limit = 50, offset = 0 } = args;
+      let sql = 'SELECT * FROM warehouse_bins WHERE tenant_id = ? AND warehouse_id = ?';
+      const params: any[] = [tenantId, warehouseId];
+      if (zone) { sql += ' AND zone = ?'; params.push(zone); }
+      sql += ' ORDER BY code ASC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const result = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'create_warehouse_bin': {
+      const { warehouseId, code, zone, maxCapacity } = args;
+      const id = 'bin_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO warehouse_bins (id, tenant_id, warehouse_id, code, zone, max_capacity, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, warehouseId, code, zone || null, maxCapacity || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'transfer_inventory': {
+      const { productId, quantity, fromLocationId, toLocationId, fromBinId, toBinId, notes } = args;
+      if (quantity <= 0) throw new Error('Quantity must be positive');
+      const now = Date.now();
+      const product = db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').get(productId, tenantId) as any;
+      if (!product) throw new Error('Product not found');
+      // Deduct from source
+      if (fromLocationId) {
+        db.prepare('UPDATE products SET quantity = quantity - ?, updated_at = ? WHERE id = ?').run(quantity, now, productId);
+      }
+      // Add to destination
+      if (toLocationId) {
+        db.prepare('UPDATE products SET quantity = quantity + ?, updated_at = ? WHERE id = ?').run(quantity, now, productId);
+      }
+      const id = 'mov_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      db.prepare(`INSERT INTO inventory_movements (id, tenant_id, product_id, from_location_id, to_location_id, from_bin_id, to_bin_id, quantity, type, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'transfer', ?, ?, ?)`).run(id, tenantId, productId, fromLocationId || null, toLocationId || null, fromBinId || null, toBinId || null, quantity, notes || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'list_inventory_movements': {
+      const { productId, type, limit = 50, offset = 0 } = args;
+      let sql = 'SELECT im.*, p.name as product_name, p.sku as product_sku FROM inventory_movements im JOIN products p ON p.id = im.product_id WHERE im.tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (productId) { sql += ' AND im.product_id = ?'; params.push(productId); }
+      if (type) { sql += ' AND im.type = ?'; params.push(type); }
+      sql += ' ORDER BY im.created_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const result = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'list_drop_ship_orders': {
+      const { status, supplierId, limit = 50, offset = 0 } = args;
+      let sql = 'SELECT dso.*, s.name as supplier_name FROM drop_ship_orders dso JOIN suppliers s ON s.id = dso.supplier_id WHERE dso.tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (status) { sql += ' AND dso.status = ?'; params.push(status); }
+      if (supplierId) { sql += ' AND dso.supplier_id = ?'; params.push(supplierId); }
+      sql += ' ORDER BY dso.created_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const result = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'update_drop_ship_status': {
+      const { dropShipId, status, trackingNumber, notes } = args;
+      const now = Date.now();
+      const existing = db.prepare('SELECT * FROM drop_ship_orders WHERE id = ? AND tenant_id = ?').get(dropShipId, tenantId) as any;
+      if (!existing) throw new Error('Drop ship order not found');
+      db.prepare(`UPDATE drop_ship_orders SET status = ?, tracking_number = COALESCE(?, tracking_number), notes = COALESCE(?, notes), updated_at = ? WHERE id = ? AND tenant_id = ?`).run(status, trackingNumber || null, notes || null, now, dropShipId, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify({ id: dropShipId, status, success: true }, null, 2) }] };
+    }
+
+    case 'get_shipping_tracking': {
+      const { referenceType, referenceId } = args;
+      const result = db.prepare('SELECT * FROM shipping_tracking WHERE reference_type = ? AND reference_id = ? AND tenant_id = ?').all(referenceType, referenceId, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    case 'update_shipping_tracking': {
+      const { referenceType, referenceId, carrier, trackingNumber, status, notes } = args;
+      const now = Date.now();
+      const existing = db.prepare('SELECT * FROM shipping_tracking WHERE reference_type = ? AND reference_id = ? AND tenant_id = ?').get(referenceType, referenceId, tenantId) as any;
+      if (existing) {
+        db.prepare(`UPDATE shipping_tracking SET carrier = COALESCE(?, carrier), tracking_number = COALESCE(?, tracking_number), status = COALESCE(?, status), notes = COALESCE(?, notes), updated_at = ? WHERE id = ?`).run(carrier || null, trackingNumber || null, status || null, notes || null, now, existing.id);
+        return { content: [{ type: 'text', text: JSON.stringify({ id: existing.id, success: true }, null, 2) }] };
+      } else {
+        const id = 'st_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        db.prepare(`INSERT INTO shipping_tracking (id, tenant_id, reference_type, reference_id, carrier, tracking_number, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, referenceType, referenceId, carrier || null, trackingNumber || null, status || 'pending', notes || null, now, now);
+        return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+      }
     }
 
     // ---- FINANCE TOOL HANDLERS ----
