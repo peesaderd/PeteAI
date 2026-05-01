@@ -447,23 +447,130 @@ function initializeSchema(db: Database.Database) {
     -- FINANCE & ACCOUNTING
     -- ============================================================
 
+    -- Chart of Accounts (ผังบัญชี)
+    CREATE TABLE IF NOT EXISTS chart_of_accounts (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('asset','liability','equity','income','expense')),
+      subtype TEXT,
+      parent_id TEXT REFERENCES chart_of_accounts(id),
+      is_active INTEGER NOT NULL DEFAULT 1,
+      description TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, code)
+    );
+
+    -- Finance Transactions (enhanced)
     CREATE TABLE IF NOT EXISTS finance_transactions (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL REFERENCES tenants(id),
-      type TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('income','expense','transfer','ar','ap')),
       category TEXT NOT NULL DEFAULT 'general',
       amount REAL NOT NULL,
       currency TEXT NOT NULL DEFAULT 'USD',
       description TEXT,
+      account_id TEXT REFERENCES chart_of_accounts(id),
       reference_type TEXT,
       reference_id TEXT,
       transaction_date INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_finance_transactions_date ON finance_transactions(transaction_date);
 
+    -- Accounts Receivable
+    CREATE TABLE IF NOT EXISTS accounts_receivable (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      customer_id TEXT REFERENCES customers(id),
+      invoice_number TEXT NOT NULL,
+      amount REAL NOT NULL,
+      amount_paid REAL NOT NULL DEFAULT 0,
+      due_date INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','partial','paid','overdue','written_off')),
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Accounts Payable
+    CREATE TABLE IF NOT EXISTS accounts_payable (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      vendor_name TEXT NOT NULL,
+      invoice_number TEXT NOT NULL,
+      amount REAL NOT NULL,
+      amount_paid REAL NOT NULL DEFAULT 0,
+      due_date INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','partial','paid','overdue','written_off')),
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Bank Reconciliation
+    CREATE TABLE IF NOT EXISTS bank_reconciliation (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      account_name TEXT NOT NULL,
+      statement_balance REAL NOT NULL,
+      system_balance REAL NOT NULL,
+      difference REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','in_progress','reconciled')),
+      reconciled_at INTEGER,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Tax Rates
+    CREATE TABLE IF NOT EXISTS tax_rates (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      rate REAL NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('vat','sales_tax','gst','other')),
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Tax Transactions
+    CREATE TABLE IF NOT EXISTS tax_transactions (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      tax_rate_id TEXT REFERENCES tax_rates(id),
+      transaction_id TEXT REFERENCES finance_transactions(id),
+      taxable_amount REAL NOT NULL,
+      tax_amount REAL NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    -- Budgets
+    CREATE TABLE IF NOT EXISTS budgets (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      amount REAL NOT NULL,
+      period TEXT NOT NULL CHECK(period IN ('monthly','quarterly','yearly')),
+      start_date INTEGER NOT NULL,
+      end_date INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_finance_transactions_date ON finance_transactions(transaction_date);
     CREATE INDEX IF NOT EXISTS idx_finance_transactions_tenant ON finance_transactions(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_finance_transactions_type ON finance_transactions(type);
+    CREATE INDEX IF NOT EXISTS idx_coa_tenant ON chart_of_accounts(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_ar_tenant ON accounts_receivable(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_ap_tenant ON accounts_payable(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_bank_recon_tenant ON bank_reconciliation(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_tax_rates_tenant ON tax_rates(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_tax_trans_tenant ON tax_transactions(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_budgets_tenant ON budgets(tenant_id);
   `);
 }

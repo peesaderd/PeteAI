@@ -138,6 +138,118 @@ const TOOLS = [
     offset: z.number().optional(),
   })),
 
+  tool('create_transaction', 'Create a finance transaction', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    type: z.enum(["income","expense","transfer","ar","ap"]).describe("Transaction type"),
+    category: z.string().describe("Transaction category"),
+    amount: z.number().describe("Transaction amount"),
+    currency: z.string().optional().describe("Currency (default: USD)"),
+    description: z.string().optional(),
+    accountId: z.string().optional().describe("Chart of Accounts ID"),
+    referenceType: z.string().optional(),
+    referenceId: z.string().optional(),
+    transactionDate: z.number().optional().describe("Unix timestamp"),
+  })),
+
+  tool("get_chart_of_accounts", "Get chart of accounts", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    type: z.string().optional().describe("Filter by type (asset, liability, equity, income, expense)"),
+    activeOnly: z.boolean().optional(),
+  })),
+
+  tool("create_account", "Create a chart of account entry", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    code: z.string().describe("Account code (e.g. 1100)"),
+    name: z.string().describe("Account name"),
+    type: z.enum(["asset","liability","equity","income","expense"]).describe("Account type"),
+    subtype: z.string().optional(),
+    parentId: z.string().optional(),
+    description: z.string().optional(),
+  })),
+
+  tool("get_balance_sheet", "Get balance sheet", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    asOfDate: z.number().optional().describe("Unix timestamp"),
+  })),
+
+  tool("get_profit_loss", "Get profit & loss statement", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    startDate: z.number().optional(),
+    endDate: z.number().optional(),
+  })),
+
+  tool("get_accounts_receivable", "List accounts receivable", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    status: z.string().optional().describe("pending, partial, paid, overdue, written_off"),
+  })),
+
+  tool("get_accounts_payable", "List accounts payable", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    status: z.string().optional(),
+  })),
+
+  tool("create_ar_invoice", "Create an accounts receivable invoice", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    customerId: z.string().describe("Customer ID"),
+    invoiceNumber: z.string().describe("Invoice number"),
+    amount: z.number().describe("Invoice amount"),
+    dueDate: z.number().describe("Due date (Unix)"),
+    notes: z.string().optional(),
+  })),
+
+  tool("create_ap_invoice", "Create an accounts payable invoice", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    vendorName: z.string().describe("Vendor name"),
+    invoiceNumber: z.string().describe("Invoice number"),
+    amount: z.number().describe("Invoice amount"),
+    dueDate: z.number().describe("Due date (Unix)"),
+    notes: z.string().optional(),
+  })),
+
+  tool("record_payment", "Record a payment against AR or AP", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    type: z.enum(["ar","ap"]).describe("AR or AP"),
+    invoiceId: z.string().describe("Invoice ID"),
+    amount: z.number().describe("Payment amount"),
+  })),
+
+  tool("get_tax_rates", "List tax rates", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+  })),
+
+  tool("create_tax_rate", "Create a tax rate", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    name: z.string().describe("Tax name (e.g. VAT 7%)"),
+    rate: z.number().describe("Tax rate (e.g. 0.07 for 7%)"),
+    type: z.enum(["vat","sales_tax","gst","other"]).describe("Tax type"),
+  })),
+
+  tool("get_budgets", "List budgets", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+  })),
+
+  tool("create_budget", "Create a budget", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    name: z.string().describe("Budget name"),
+    category: z.string().describe("Budget category"),
+    amount: z.number().describe("Budget amount"),
+    period: z.enum(["monthly","quarterly","yearly"]).describe("Budget period"),
+    startDate: z.number().describe("Start date (Unix)"),
+    endDate: z.number().describe("End date (Unix)"),
+  })),
+
+  tool("get_bank_reconciliations", "List bank reconciliations", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+  })),
+
+  tool("create_bank_reconciliation", "Create a bank reconciliation", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    accountName: z.string().describe("Bank account name"),
+    statementBalance: z.number().describe("Balance per bank statement"),
+    systemBalance: z.number().describe("Balance per system"),
+    notes: z.string().optional(),
+  })),
+
   // ---- PRODUCTION ----
   tool('list_production_orders', 'List production orders', z.object({
     tenantId: z.string().describe('Tenant ID'),
@@ -1179,6 +1291,165 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       const rbac = new RBACManager();
       const result = rbac.getAuditLogs(tenantId, args.limit, args.offset);
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+
+    // ---- FINANCE TOOL HANDLERS ----
+
+    case 'create_transaction': {
+      const { type, category, amount, currency = 'USD', description, accountId, referenceType, referenceId, transactionDate } = args;
+      const id = 'txn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      const txnDate = transactionDate || now;
+      db.prepare(`INSERT INTO finance_transactions (id, tenant_id, type, category, amount, currency, description, account_id, reference_type, reference_id, transaction_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, type, category, amount, currency, description, accountId || null, referenceType || null, referenceId || null, txnDate, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'get_chart_of_accounts': {
+      const { type, activeOnly } = args;
+      let sql = 'SELECT * FROM chart_of_accounts WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (type) { sql += ' AND type = ?'; params.push(type); }
+      if (activeOnly) { sql += ' AND is_active = 1'; }
+      sql += ' ORDER BY code ASC';
+      const results = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+    }
+
+    case 'create_account': {
+      const { code, name, type, subtype, parentId, description } = args;
+      const id = 'acct_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO chart_of_accounts (id, tenant_id, code, name, type, subtype, parent_id, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, code, name, type, subtype || null, parentId || null, description || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'get_balance_sheet': {
+      const { asOfDate } = args;
+      const date = asOfDate || Date.now();
+      // Assets
+      const assets = db.prepare("SELECT SUM(amount) as total FROM finance_transactions WHERE tenant_id = ? AND type IN ('income','ar') AND transaction_date <= ?").get(tenantId, date) as any;
+      // Liabilities
+      const liabilities = db.prepare("SELECT SUM(amount) as total FROM finance_transactions WHERE tenant_id = ? AND type IN ('expense','ap') AND transaction_date <= ?").get(tenantId, date) as any;
+      const equity = (assets?.total || 0) - (liabilities?.total || 0);
+      return { content: [{ type: 'text', text: JSON.stringify({
+        asOfDate: date,
+        totalAssets: assets?.total || 0,
+        totalLiabilities: liabilities?.total || 0,
+        equity,
+        assets: db.prepare("SELECT type, SUM(amount) as total FROM finance_transactions WHERE tenant_id = ? AND type IN ('income','ar') AND transaction_date <= ? GROUP BY type").all(tenantId, date),
+        liabilities: db.prepare("SELECT type, SUM(amount) as total FROM finance_transactions WHERE tenant_id = ? AND type IN ('expense','ap') AND transaction_date <= ? GROUP BY type").all(tenantId, date),
+      }, null, 2) }] };
+    }
+
+    case 'get_profit_loss': {
+      const { startDate, endDate } = args;
+      const now = Date.now();
+      const sd = startDate || (now - 30 * 86400 * 1000);
+      const ed = endDate || now;
+      const income = db.prepare("SELECT SUM(amount) as total FROM finance_transactions WHERE tenant_id = ? AND type = 'income' AND transaction_date >= ? AND transaction_date <= ?").get(tenantId, sd, ed) as any;
+      const expenses = db.prepare("SELECT SUM(amount) as total FROM finance_transactions WHERE tenant_id = ? AND type = 'expense' AND transaction_date >= ? AND transaction_date <= ?").get(tenantId, sd, ed) as any;
+      const netIncome = (income?.total || 0) - (expenses?.total || 0);
+      return { content: [{ type: 'text', text: JSON.stringify({
+        startDate: sd, endDate: ed,
+        totalIncome: income?.total || 0,
+        totalExpenses: expenses?.total || 0,
+        netIncome,
+      }, null, 2) }] };
+    }
+
+    case 'get_accounts_receivable': {
+      const { status } = args;
+      let sql = 'SELECT * FROM accounts_receivable WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (status) { sql += ' AND status = ?'; params.push(status); }
+      sql += ' ORDER BY due_date ASC';
+      const results = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+    }
+
+    case 'get_accounts_payable': {
+      const { status } = args;
+      let sql = 'SELECT * FROM accounts_payable WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (status) { sql += ' AND status = ?'; params.push(status); }
+      sql += ' ORDER BY due_date ASC';
+      const results = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+    }
+
+    case 'create_ar_invoice': {
+      const { customerId, invoiceNumber, amount, dueDate, notes } = args;
+      const id = 'ar_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO accounts_receivable (id, tenant_id, customer_id, invoice_number, amount, amount_paid, due_date, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, 'pending', ?, ?, ?)`).run(id, tenantId, customerId, invoiceNumber, amount, dueDate, notes || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'create_ap_invoice': {
+      const { vendorName, invoiceNumber, amount, dueDate, notes } = args;
+      const id = 'ap_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO accounts_payable (id, tenant_id, vendor_name, invoice_number, amount, amount_paid, due_date, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, 'pending', ?, ?, ?)`).run(id, tenantId, vendorName, invoiceNumber, amount, dueDate, notes || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'record_payment': {
+      const { type, invoiceId, amount } = args;
+      const now = Date.now();
+      if (type === 'ar') {
+        const inv = db.prepare('SELECT * FROM accounts_receivable WHERE id = ? AND tenant_id = ?').get(invoiceId, tenantId) as any;
+        if (!inv) throw new Error('AR invoice not found');
+        const newPaid = inv.amount_paid + amount;
+        const newStatus = newPaid >= inv.amount ? 'paid' : 'partial';
+        db.prepare('UPDATE accounts_receivable SET amount_paid = ?, status = ?, updated_at = ? WHERE id = ?').run(newPaid, newStatus, now, invoiceId);
+      } else {
+        const inv = db.prepare('SELECT * FROM accounts_payable WHERE id = ? AND tenant_id = ?').get(invoiceId, tenantId) as any;
+        if (!inv) throw new Error('AP invoice not found');
+        const newPaid = inv.amount_paid + amount;
+        const newStatus = newPaid >= inv.amount ? 'paid' : 'partial';
+        db.prepare('UPDATE accounts_payable SET amount_paid = ?, status = ?, updated_at = ? WHERE id = ?').run(newPaid, newStatus, now, invoiceId);
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({ success: true, amount, type, invoiceId }, null, 2) }] };
+    }
+
+    case 'get_tax_rates': {
+      const results = db.prepare('SELECT * FROM tax_rates WHERE tenant_id = ? AND is_active = 1').all(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+    }
+
+    case 'create_tax_rate': {
+      const { name, rate, type } = args;
+      const id = 'tax_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO tax_rates (id, tenant_id, name, rate, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, name, rate, type, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'get_budgets': {
+      const results = db.prepare('SELECT * FROM budgets WHERE tenant_id = ? ORDER BY start_date DESC').all(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+    }
+
+    case 'create_budget': {
+      const { name, category, amount, period, startDate, endDate } = args;
+      const id = 'budget_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO budgets (id, tenant_id, name, category, amount, period, start_date, end_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, name, category, amount, period, startDate, endDate, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'get_bank_reconciliations': {
+      const results = db.prepare('SELECT * FROM bank_reconciliation WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+    }
+
+    case 'create_bank_reconciliation': {
+      const { accountName, statementBalance, systemBalance, notes } = args;
+      const id = 'recon_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      const difference = statementBalance - systemBalance;
+      db.prepare(`INSERT INTO bank_reconciliation (id, tenant_id, account_name, statement_balance, system_balance, difference, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`).run(id, tenantId, accountName, statementBalance, systemBalance, difference, notes || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, difference, success: true }, null, 2) }] };
     }
 
     default:

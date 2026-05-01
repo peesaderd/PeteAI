@@ -9,6 +9,8 @@ import { MemoryStore } from "./memory.js";
 import { ToolRouter } from "./tool-router.js";
 import { WebhookHandler, type WebhookEvent } from "./webhooks.js";
 import { Scheduler } from "./scheduler.js";
+import { LLMClient } from "./llm.js";
+import { AgentLoop } from "./agent-loop.js";
 
 const PORT = parseInt(process.env.ORCHESTRATOR_PORT || "54516", 10);
 
@@ -25,6 +27,10 @@ async function main() {
   // Initialize scheduler for routine jobs
   const scheduler = new Scheduler(toolRouter, memory);
   scheduler.registerDefaultJobs();
+
+  // Initialize LLM client and autonomous agent loop
+  const llm = new LLMClient();
+  const agentLoop = new AgentLoop(toolRouter, memory, llm);
 
   // ============================================================
   // Health & Info
@@ -228,6 +234,83 @@ async function main() {
   });
 
   // ============================================================
+  // Agent Loop Control API
+  // ============================================================
+
+  app.get("/api/agents/loop", (_req, res) => {
+    res.json(agentLoop.getStatus());
+  });
+
+  app.post("/api/agents/loop/start", (_req, res) => {
+    agentLoop.start();
+    res.json({ status: "started", agents: agentLoop.getStatus() });
+  });
+
+  app.post("/api/agents/loop/stop", (_req, res) => {
+    agentLoop.stop();
+    res.json({ status: "stopped" });
+  });
+
+  // ============================================================
+  // Task Queue API (for creating tasks consumed by Agent Loop)
+  // ============================================================
+
+  app.post("/api/tasks", (req, res) => {
+    try {
+      const { title, description, assignee, priority, inputData } = req.body;
+      if (!title || !assignee) {
+        return res.status(400).json({ error: "title and assignee are required" });
+      }
+      const task = {
+        id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        title,
+        description: description || "",
+        assignee,
+        priority: priority || 0,
+        inputData: inputData || {},
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      };
+      const existing = memory.getAgentState(assignee, "erp-core", "pending_tasks");
+      let tasks: any[] = [];
+      if (existing) {
+        try { tasks = JSON.parse(existing); } catch {}
+      }
+      tasks.push(task);
+      memory.setAgentState(assignee, "erp-core", "pending_tasks", JSON.stringify(tasks));
+      res.status(201).json({ status: "created", task });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/tasks", (req, res) => {
+    try {
+      const assignee = req.query.assignee as string | undefined;
+      const status = req.query.status as string | undefined;
+      const allTasks: any[] = [];
+      const agentNames = ["rd", "brainstorm", "production", "design", "marketing"];
+      for (const agent of agentNames) {
+        if (assignee && agent !== assignee) continue;
+        const raw = memory.getAgentState(agent, "erp-core", "pending_tasks");
+        if (raw) {
+          try {
+            const tasks = JSON.parse(raw);
+            for (const t of tasks) {
+              if (!status || t.status === status) {
+                allTasks.push({ ...t, agent });
+              }
+            }
+          } catch {}
+        }
+      }
+      res.json({ tasks: allTasks });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+// ============================================================
   // MCP-compatible endpoint (for AI agents that speak MCP)
   // ============================================================
 
@@ -250,8 +333,11 @@ async function main() {
   // Start Server
   // ============================================================
 
-  // Start scheduler
+  // Start scheduler and agent loop
   scheduler.start();
+  if (process.env.AGENT_LOOP_ENABLED === "true") {
+    agentLoop.start();
+  }
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[AI Orchestrator] Running on http://0.0.0.0:${PORT}`);
@@ -266,6 +352,9 @@ async function main() {
     );
     console.log(
       `[AI Orchestrator] Agency API: ${process.env.AGENCY_API_URL || "http://localhost:54515"}`
+    );
+    console.log(
+      `[AI Orchestrator] Agent Loop: ${process.env.AGENT_LOOP_ENABLED === "true" ? "RUNNING" : "STOPPED (set AGENT_LOOP_ENABLED=true to start)"}`
     );
   });
 }
