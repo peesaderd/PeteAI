@@ -11,6 +11,8 @@ import { WebhookHandler, type WebhookEvent } from "./webhooks.js";
 import { Scheduler } from "./scheduler.js";
 import { LLMClient } from "./llm.js";
 import { AgentLoop } from "./agent-loop.js";
+import { RedisTaskQueue } from "./redis-queue.js";
+import { v4 as uuidv4 } from "uuid";
 
 const PORT = parseInt(process.env.ORCHESTRATOR_PORT || "54516", 10);
 
@@ -32,6 +34,13 @@ async function main() {
   const llm = new LLMClient();
   const agentLoop = new AgentLoop(toolRouter, memory, llm);
   toolRouter.agentLoop = agentLoop;
+
+  // Initialize Redis task queue (event-driven mode)
+  const redisQueue = new RedisTaskQueue();
+  await redisQueue.connect();
+  if (redisQueue.isConnected()) {
+    agentLoop.setRedisQueue(redisQueue);
+  }
 
   // ============================================================
   // Health & Info
@@ -250,6 +259,72 @@ async function main() {
   app.post("/api/agents/loop/stop", (_req, res) => {
     agentLoop.stop();
     res.json({ status: "stopped" });
+  });
+
+  // ============================================================
+  // Agent Sleep/Wake API (Event-driven mode)
+  // ============================================================
+
+  app.post("/api/agents/:agentId/sleep", async (req, res) => {
+    try {
+      const result = await agentLoop.sleepAgent(req.params.agentId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/agents/:agentId/wake", async (req, res) => {
+    try {
+      const result = await agentLoop.wakeAgent(req.params.agentId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // Redis Queue API
+  // ============================================================
+
+  app.get("/api/queue", async (_req, res) => {
+    try {
+      if (redisQueue && redisQueue.isConnected()) {
+        const lengths = await redisQueue.getAllQueueLengths();
+        res.json({ connected: true, queues: lengths });
+      } else {
+        res.json({ connected: false, queues: {} });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/queue/push", async (req, res) => {
+    try {
+      if (!redisQueue || !redisQueue.isConnected()) {
+        return res.status(503).json({ error: "Redis queue not connected" });
+      }
+      const { targetAgent, title, description, priority, payload } = req.body;
+      if (!targetAgent || !title) {
+        return res.status(400).json({ error: "targetAgent and title are required" });
+      }
+      const task = {
+        id: uuidv4(),
+        type: "agent_task" as const,
+        targetAgent,
+        title,
+        description: description || "",
+        priority: priority || 2,
+        payload: payload || {},
+        createdAt: new Date().toISOString(),
+        source: "api",
+      };
+      const pushed = await redisQueue.pushTask(task);
+      res.json({ success: pushed, task });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // ============================================================

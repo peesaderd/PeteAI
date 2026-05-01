@@ -9,6 +9,7 @@ import { ToolRouter } from "./tool-router.js";
 import { MemoryStore } from "./memory.js";
 import { LLMClient, LLMMessage, LLMToolDef } from "./llm.js";
 import { PersistenceManager, type PersistedState, type PersistedEvent } from "./persistence.js";
+import { RedisTaskQueue } from "./redis-queue.js";
 import { v4 as uuidv4 } from "uuid";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -150,22 +151,29 @@ export class AgentLoop {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private tickCount = 0;
+  private redisQueue: RedisTaskQueue | null = null;
+  private agentSleeping: Map<string, boolean> = new Map();
+  private maxConcurrentAgents = 2;
+  private eventDriven = false;
 
   constructor(
     toolRouter: ToolRouter,
     memory: MemoryStore,
     llm: LLMClient,
       persistence?: PersistenceManager,
-    pollIntervalMs = 15000
+    pollIntervalMs = 15000,
+    redisQueue?: RedisTaskQueue
   ) {
     this.toolRouter = toolRouter;
     this.memory = memory;
     this.llm = llm;
       this.persistence = persistence || new PersistenceManager("./.conversations");
     this.pollInterval = pollIntervalMs;
+    this.redisQueue = redisQueue || null;
 
     for (const def of AGENT_DEFINITIONS) {
       this.agents.set(def.name, def);
+      this.agentSleeping.set(def.name, false);
     }
   }
 
@@ -181,9 +189,29 @@ export class AgentLoop {
     console.log(
       `[AgentLoop] LLM: ${this.llm.isConfigured() ? this.llm.getConfig().model : "RULE-BASED (no LLM configured)"}`
     );
-    // Run first tick immediately, then on interval
-    this.tick();
-    this.timer = setInterval(() => this.tick(), this.pollInterval);
+
+    // Event-driven mode: use Redis queue, agents sleep when idle
+    if (this.redisQueue && this.redisQueue.isConnected()) {
+      this.eventDriven = true;
+      console.log(`[AgentLoop] Event-driven mode enabled (Redis queue)`);
+      console.log(`[AgentLoop] Max concurrent agents: ${this.maxConcurrentAgents}`);
+      // Subscribe all agents to wake signals
+      for (const [name] of this.agents) {
+        this.redisQueue.subscribe(name, () => this.wakeAgent(name));
+      }
+      // Start with all agents sleeping
+      for (const [name] of this.agents) {
+        this.agentSleeping.set(name, true);
+      }
+      // Still run tick but at a slower interval (30s) to check for orphaned tasks
+      this.timer = setInterval(() => this.tick(), Math.max(this.pollInterval, 30000));
+      console.log(`[AgentLoop] All agents sleeping. Waiting for tasks via Redis...`);
+    } else {
+      // Polling mode: original behavior
+      console.log(`[AgentLoop] Polling mode (no Redis queue)`);
+      this.tick();
+      this.timer = setInterval(() => this.tick(), this.pollInterval);
+    }
   }
 
   stop(): void {
@@ -199,6 +227,8 @@ export class AgentLoop {
     return {
       running: this.running,
       tickCount: this.tickCount,
+      eventDriven: this.eventDriven,
+      maxConcurrentAgents: this.maxConcurrentAgents,
       llmConfigured: this.llm.isConfigured(),
       llmModel: this.llm.isConfigured() ? this.llm.getConfig().model : null,
       agents: Array.from(this.agents.entries()).map(([name, cfg]) => ({
@@ -206,6 +236,7 @@ export class AgentLoop {
         role: cfg.role,
         activeTasks: this.getActiveTaskCount(name),
         maxConcurrent: cfg.maxConcurrentTasks,
+        sleeping: this.agentSleeping.get(name) || false,
       })),
       activeTasks: Array.from(this.activeTasks.values()).map((t) => ({
         id: t.id,
@@ -238,8 +269,30 @@ export class AgentLoop {
 
       // Phase 2: Poll for new tasks (if agents have capacity)
       await this.pollNewTasks();
+
+      // Phase 3: In event-driven mode, check Redis queue for sleeping agents
+      if (this.eventDriven && this.redisQueue) {
+        await this.checkRedisQueue();
+      }
     } catch (err: any) {
       console.error(`[AgentLoop] Tick error:`, err.message);
+    }
+  }
+
+  // ─── Check Redis Queue for Sleeping Agents ────────────────
+
+  private async checkRedisQueue(): Promise<void> {
+    try {
+      for (const [name, sleeping] of this.agentSleeping) {
+        if (!sleeping) continue;
+        const len = await this.redisQueue!.queueLength(name);
+        if (len > 0) {
+          console.log(`[AgentLoop] Redis queue has ${len} tasks for ${name}, waking...`);
+          await this.wakeAgent(name);
+        }
+      }
+    } catch (err: any) {
+      console.error(`[AgentLoop] checkRedisQueue error:`, err.message);
     }
   }
 
@@ -839,6 +892,17 @@ export class AgentLoop {
 
   private async pollNewTasks(): Promise<void> {
     for (const [name, config] of this.agents) {
+      // Skip sleeping agents in event-driven mode
+      if (this.eventDriven && this.agentSleeping.get(name)) continue;
+
+      // Concurrency limit: check total active agents across all types
+      if (this.eventDriven) {
+        const totalActive = this.getTotalActiveAgents();
+        if (totalActive >= this.maxConcurrentAgents) {
+          continue; // At capacity, skip polling
+        }
+      }
+
       const activeCount = this.getActiveTaskCount(name);
       const capacity = config.maxConcurrentTasks - activeCount;
 
@@ -861,6 +925,28 @@ export class AgentLoop {
         console.error(`[AgentLoop] Poll error for ${name}:`, err.message);
       }
     }
+  }
+
+  setRedisQueue(queue: RedisTaskQueue): void {
+    this.redisQueue = queue;
+    this.eventDriven = queue.isConnected();
+    if (this.eventDriven) {
+      for (const [name] of this.agents) {
+        this.agentSleeping.set(name, true);
+        queue.subscribe(name, () => this.wakeAgent(name));
+      }
+      console.log("[AgentLoop] Redis queue connected. All agents sleeping, waiting for tasks...");
+    }
+  }
+
+  private getTotalActiveAgents(): number {
+    const activeNames = new Set<string>();
+    for (const task of this.activeTasks.values()) {
+      if (task.status === "running") {
+        activeNames.add(task.agentName);
+      }
+    }
+    return activeNames.size;
   }
 
   private clearPendingTasks(agentName: string, claimedIds: string[]): void {
@@ -1113,6 +1199,28 @@ export class AgentLoop {
     }
   }
   // ─── Resume Task from Persistence ─────────────────────────
+
+  // ─── Sleep / Wake Agent ────────────────────────────────────
+
+  async sleepAgent(agentName: string): Promise<{ success: boolean; error?: string }> {
+    const agent = this.agents.get(agentName);
+    if (!agent) {
+      return { success: false, error: `Unknown agent: ${agentName}` };
+    }
+    this.agentSleeping.set(agentName, true);
+    console.log(`[AgentLoop] Agent "${agentName}" put to sleep`);
+    return { success: true };
+  }
+
+  async wakeAgent(agentName: string): Promise<{ success: boolean; error?: string }> {
+    const agent = this.agents.get(agentName);
+    if (!agent) {
+      return { success: false, error: `Unknown agent: ${agentName}` };
+    }
+    this.agentSleeping.set(agentName, false);
+    console.log(`[AgentLoop] Agent "${agentName}" woken up`);
+    return { success: true };
+  }
 
   async resumeTask(
     agentName: string,

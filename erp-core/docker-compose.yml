@@ -1,80 +1,105 @@
 services:
-  erp-core:
-    build: .
-    ports:
-      - 54510:54510
-    volumes:
-      - ./data:/app/data
-      - ./packages/web/dist:/app/packages/web/dist
-    environment:
-      - PORT=54510
-      - ERP_CORE_URL=http://localhost:54510
-      - NODE_ENV=production
-      - SIYUAN_API_TOKEN=9w4oqxucqvq1o8sd
-    restart: unless-stopped
-
-  task-manager:
-    build:
-      context: .
-      dockerfile: Dockerfile.task-manager
-    ports:
-      - 8082:8081
-    volumes:
-      - ./data:/app/data
-    environment:
-      - PORT=8081
-      - TASK_MANAGER_DB_PATH=/app/data/task-manager.db
-    restart: unless-stopped
-
-  knowledge-base:
-    build:
-      context: .
-      dockerfile: Dockerfile.knowledge-base
-    ports:
-      - 54512:3100
-    volumes:
-      - ./data:/app/data
-    environment:
-      - PORT=3100
-      - KB_DB_PATH=/app/data/knowledge-base.db
-      - KB_DATA_DIR=/app/data/kb-files
-    restart: unless-stopped
-
-  sync-siyuan:
-    build:
-      context: .
-      dockerfile: Dockerfile.sync-siyuan
-    ports:
-      - 54513:54513
-    volumes:
-      - ./data:/app/data
-    environment:
-      - SYNC_PORT=54513
-      - SIYUAN_URL=http://siyuan:6806
-      - SIYUAN_API_TOKEN=9w4oqxucqvq1o8sd
-      - KB_URL=http://knowledge-base:3100
-      - SYNC_INTERVAL=60000
-    restart: unless-stopped
-    depends_on:
-      - knowledge-base
-
   ai-orchestrator:
     build:
       context: ./packages/ai-orchestrator
       dockerfile: Dockerfile
-    ports:
-      - 54516:54516
-    volumes:
-      - ./data:/app/data
-    environment:
-      - ORCHESTRATOR_PORT=54516
-      - ORCHESTRATOR_DB_PATH=/app/data/orchestrator.db
-      - ERP_MCP_URL=http://erp-core:54510/api/mcp
-      - AGENCY_API_URL=http://autonomous-agency:80
-      - SIYUAN_URL=http://172.18.0.1:54511
-      - SIYUAN_TOKEN=9w4oqxucqvq1o8sd
-      - TASK_MANAGER_URL=http://task-manager:8081
-      - AGENT_LOOP_ENABLED=true
-    restart: unless-stopped
     depends_on:
-      - erp-core
+    - erp-core
+    - redis
+    environment:
+    - ORCHESTRATOR_PORT=54516
+    - ORCHESTRATOR_DB_PATH=/app/data/orchestrator.db
+    - ERP_MCP_URL=http://erp-core:54510/api/mcp
+    - AGENCY_API_URL=http://autonomous-agency:80
+    - SIYUAN_URL=http://172.18.0.1:54511
+    - SIYUAN_TOKEN=9w4oqxucqvq1o8sd
+    - TASK_MANAGER_URL=http://task-manager:8081
+    - AGENT_LOOP_ENABLED=true
+    - REDIS_URL=redis://redis:6379
+    ports:
+    - 54516:54516
+    restart: unless-stopped
+    volumes:
+    - ./data:/app/data
+  erp-core:
+    build: .
+    environment:
+    - PORT=54510
+    - ERP_CORE_URL=http://localhost:54510
+    - NODE_ENV=production
+    - SIYUAN_API_TOKEN=9w4oqxucqvq1o8sd
+    ports:
+    - 54510:54510
+    restart: unless-stopped
+    volumes:
+    - ./data:/app/data
+    - ./packages/web/dist:/app/packages/web/dist
+  knowledge-base:
+    build:
+      context: .
+      dockerfile: Dockerfile.knowledge-base
+    environment:
+    - PORT=3100
+    - KB_DB_PATH=/app/data/knowledge-base.db
+    - KB_DATA_DIR=/app/data/kb-files
+    ports:
+    - 54512:3100
+    restart: unless-stopped
+    volumes:
+    - ./data:/app/data
+  redis:
+    image: redis:7-alpine
+    ports:
+    - 6379:6379
+    restart: unless-stopped
+    volumes:
+    - redis-data:/data
+  sync-siyuan:
+    build:
+      context: .
+      dockerfile: Dockerfile.sync-siyuan
+    depends_on:
+    - knowledge-base
+    environment:
+    - SYNC_PORT=54513
+    - SIYUAN_URL=http://siyuan:6806
+    - SIYUAN_API_TOKEN=9w4oqxucqvq1o8sd
+    - KB_URL=http://knowledge-base:3100
+    - SYNC_INTERVAL=60000
+    ports:
+    - 54513:54513
+    restart: unless-stopped
+    volumes:
+    - ./data:/app/data
+  system-agent:
+    build:
+      context: ./packages/system-agent
+      dockerfile: Dockerfile
+    depends_on:
+    - ai-orchestrator
+    - redis
+    environment:
+    - SYSTEM_AGENT_PORT=54520
+    - ORCHESTRATOR_URL=http://ai-orchestrator:54516
+    - REDIS_URL=redis://redis:6379
+    ports:
+    - 54520:54520
+    restart: unless-stopped
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /root/.openhands:/root/.openhands:ro
+    - ./packages/ai-orchestrator/.conversations:/conversations:ro
+  task-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.task-manager
+    environment:
+    - PORT=8081
+    - TASK_MANAGER_DB_PATH=/app/data/task-manager.db
+    ports:
+    - 8082:8081
+    restart: unless-stopped
+    volumes:
+    - ./data:/app/data
+volumes:
+  redis-data: {}
