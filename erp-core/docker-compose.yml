@@ -73,6 +73,8 @@ services:
       - AGENCY_API_URL=http://autonomous-agency:80
       - SIYUAN_URL=http://172.18.0.1:54511
       - SIYUAN_TOKEN=9w4oqxucqvq1o8sd
+      - TASK_MANAGER_URL=http://task-manager:8081
+      - AGENT_LOOP_ENABLED=true
     restart: unless-stopped
     depends_on:
       - erp-core

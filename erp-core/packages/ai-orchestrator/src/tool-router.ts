@@ -10,6 +10,8 @@ const ERP_MCP_URL =
   process.env.ERP_MCP_URL || "http://localhost:54510/api/mcp";
 const AGENCY_API_URL =
   process.env.AGENCY_API_URL || "http://localhost:54515";
+const TASK_MANAGER_URL =
+  process.env.TASK_MANAGER_URL || "http://task-manager:8081";
 
 export interface ToolDefinition {
   name: string;
@@ -218,6 +220,200 @@ export class ToolRouter {
         required: ["taskId"],
       },
       category: "agency",
+    });
+
+    // Task Manager tools
+    this.registerTool({
+      name: "task_manager_list_projects",
+      description: "List all projects from Task Manager",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string", description: "Tenant ID (default: erp-core)" },
+          status: { type: "string", description: "Filter by status (planning, active, on_hold, completed, cancelled)" },
+          limit: { type: "number", description: "Max results" },
+        },
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_create_project",
+      description: "Create a new project in Task Manager",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string", description: "Tenant ID (default: erp-core)" },
+          name: { type: "string", description: "Project name" },
+          description: { type: "string", description: "Project description" },
+          priority: { type: "string", enum: ["low", "medium", "high"], description: "Priority" },
+          dueDate: { type: "number", description: "Due date (unix timestamp)" },
+        },
+        required: ["name"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_get_project",
+      description: "Get project details with all tasks",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          projectId: { type: "string" },
+        },
+        required: ["projectId"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_update_project",
+      description: "Update a project",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          projectId: { type: "string" },
+          name: { type: "string" },
+          description: { type: "string" },
+          status: { type: "string", enum: ["planning", "active", "on_hold", "completed", "cancelled"] },
+          priority: { type: "string", enum: ["low", "medium", "high"] },
+        },
+        required: ["projectId"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_delete_project",
+      description: "Delete a project and all its tasks",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          projectId: { type: "string" },
+        },
+        required: ["projectId"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_list_tasks",
+      description: "List tasks with optional filters",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          projectId: { type: "string", description: "Filter by project" },
+          status: { type: "string", description: "Filter by status (todo, in_progress, review, done, cancelled)" },
+          assignee: { type: "string", description: "Filter by assignee" },
+          limit: { type: "number" },
+        },
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_create_task",
+      description: "Create a new task in Task Manager",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          projectId: { type: "string", description: "Optional: assign to a project" },
+          title: { type: "string", description: "Task title" },
+          description: { type: "string" },
+          priority: { type: "string", enum: ["low", "medium", "high"] },
+          assignee: { type: "string", description: "Who is responsible" },
+          estimatedHours: { type: "number" },
+          dueDate: { type: "number", description: "Due date (unix timestamp)" },
+        },
+        required: ["title"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_get_task",
+      description: "Get task details with comments and dependencies",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          taskId: { type: "string" },
+        },
+        required: ["taskId"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_update_task",
+      description: "Update a task (status, assignee, priority, etc.)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          taskId: { type: "string" },
+          title: { type: "string" },
+          description: { type: "string" },
+          status: { type: "string", enum: ["todo", "in_progress", "review", "done", "cancelled"] },
+          priority: { type: "string", enum: ["low", "medium", "high"] },
+          assignee: { type: "string" },
+          estimatedHours: { type: "number" },
+          actualHours: { type: "number" },
+          dueDate: { type: "number" },
+        },
+        required: ["taskId"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_delete_task",
+      description: "Delete a task",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          taskId: { type: "string" },
+        },
+        required: ["taskId"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_get_timeline",
+      description: "Get project timeline with task progress summary",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          projectId: { type: "string" },
+        },
+        required: ["projectId"],
+      },
+      category: "orchestrator",
+    });
+
+    this.registerTool({
+      name: "task_manager_add_comment",
+      description: "Add a comment to a task",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          taskId: { type: "string" },
+          author: { type: "string" },
+          content: { type: "string" },
+        },
+        required: ["taskId", "author", "content"],
+      },
+      category: "orchestrator",
     });
 
     // Orchestrator tools
@@ -641,6 +837,145 @@ export class ToolRouter {
         });
         const data3 = await res3.json();
         return { success: res3.ok, data: data3 };
+      }
+      // ============================================================
+      // Task Manager tools
+      // ============================================================
+      case "task_manager_list_projects": {
+        const params = new URLSearchParams();
+        params.set("tenant_id", _args.tenantId || "erp-core");
+        if (_args.status) params.set("status", _args.status);
+        if (_args.limit) params.set("limit", String(_args.limit));
+        const res = await fetch(`${TASK_MANAGER_URL}/api/projects?${params.toString()}`);
+        if (!res.ok) throw new Error(`Task Manager error: ${res.status}`);
+        const data = await res.json();
+        return { success: true, data };
+      }
+      case "task_manager_create_project": {
+        const res = await fetch(`${TASK_MANAGER_URL}/api/projects?tenant_id=${_args.tenantId || "erp-core"}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: _args.name,
+            description: _args.description || "",
+            priority: _args.priority || "medium",
+            dueDate: _args.dueDate || null,
+          }),
+        });
+        if (!res.ok) throw new Error(`Task Manager error: ${res.status}`);
+        const data = await res.json();
+        return { success: true, data };
+      }
+      case "task_manager_get_project": {
+        const res = await fetch(`${TASK_MANAGER_URL}/api/projects/${_args.projectId}?tenant_id=${_args.tenantId || "erp-core"}`);
+        if (!res.ok) throw new Error(`Task Manager error: ${res.status}`);
+        const data = await res.json();
+        return { success: true, data };
+      }
+      case "task_manager_update_project": {
+        const res = await fetch(`${TASK_MANAGER_URL}/api/projects/${_args.projectId}?tenant_id=${_args.tenantId || "erp-core"}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: _args.name,
+            description: _args.description,
+            status: _args.status,
+            priority: _args.priority,
+          }),
+        });
+        if (!res.ok) throw new Error(`Task Manager error: ${res.status}`);
+        const data = await res.json();
+        return { success: true, data };
+      }
+      case "task_manager_delete_project": {
+        const res = await fetch(`${TASK_MANAGER_URL}/api/projects/${_args.projectId}?tenant_id=${_args.tenantId || "erp-core"}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error(`Task Manager error: ${res.status}`);
+        const data = await res.json();
+        return { success: true, data };
+      }
+      case "task_manager_list_tasks": {
+        const params2 = new URLSearchParams();
+        params2.set("tenant_id", _args.tenantId || "erp-core");
+        if (_args.projectId) params2.set("project_id", _args.projectId);
+        if (_args.status) params2.set("status", _args.status);
+        if (_args.assignee) params2.set("assignee", _args.assignee);
+        if (_args.limit) params2.set("limit", String(_args.limit));
+        const res2 = await fetch(`${TASK_MANAGER_URL}/api/tasks?${params2.toString()}`);
+        if (!res2.ok) throw new Error(`Task Manager error: ${res2.status}`);
+        const data2 = await res2.json();
+        return { success: true, data: data2 };
+      }
+      case "task_manager_create_task": {
+        const res3 = await fetch(`${TASK_MANAGER_URL}/api/tasks?tenant_id=${_args.tenantId || "erp-core"}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: _args.projectId || null,
+            title: _args.title,
+            description: _args.description || "",
+            priority: _args.priority || "medium",
+            assignee: _args.assignee || "",
+            estimatedHours: _args.estimatedHours || null,
+            dueDate: _args.dueDate || null,
+          }),
+        });
+        if (!res3.ok) throw new Error(`Task Manager error: ${res3.status}`);
+        const data3 = await res3.json();
+        return { success: true, data: data3 };
+      }
+      case "task_manager_get_task": {
+        const res4 = await fetch(`${TASK_MANAGER_URL}/api/tasks/${_args.taskId}?tenant_id=${_args.tenantId || "erp-core"}`);
+        if (!res4.ok) throw new Error(`Task Manager error: ${res4.status}`);
+        const data4 = await res4.json();
+        return { success: true, data: data4 };
+      }
+      case "task_manager_update_task": {
+        const res5 = await fetch(`${TASK_MANAGER_URL}/api/tasks/${_args.taskId}?tenant_id=${_args.tenantId || "erp-core"}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: _args.title,
+            description: _args.description,
+            status: _args.status,
+            priority: _args.priority,
+            assignee: _args.assignee,
+            estimatedHours: _args.estimatedHours,
+            actualHours: _args.actualHours,
+            dueDate: _args.dueDate,
+          }),
+        });
+        if (!res5.ok) throw new Error(`Task Manager error: ${res5.status}`);
+        const data5 = await res5.json();
+        return { success: true, data: data5 };
+      }
+      case "task_manager_delete_task": {
+        const res6 = await fetch(`${TASK_MANAGER_URL}/api/tasks/${_args.taskId}?tenant_id=${_args.tenantId || "erp-core"}`, {
+          method: "DELETE",
+        });
+        if (!res6.ok) throw new Error(`Task Manager error: ${res6.status}`);
+        const data6 = await res6.json();
+        return { success: true, data: data6 };
+      }
+      case "task_manager_get_timeline": {
+        const res7 = await fetch(`${TASK_MANAGER_URL}/api/projects/${_args.projectId}/timeline?tenant_id=${_args.tenantId || "erp-core"}`);
+        if (!res7.ok) throw new Error(`Task Manager error: ${res7.status}`);
+        const data7 = await res7.json();
+        return { success: true, data: data7 };
+      }
+      case "task_manager_add_comment": {
+        const res8 = await fetch(`${TASK_MANAGER_URL}/api/tasks/${_args.taskId}/comments?tenant_id=${_args.tenantId || "erp-core"}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            author: _args.author,
+            content: _args.content,
+          }),
+        });
+        if (!res8.ok) throw new Error(`Task Manager error: ${res8.status}`);
+        const data8 = await res8.json();
+        return { success: true, data: data8 };
       }
       default:
         return {

@@ -572,5 +572,171 @@ function initializeSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_tax_rates_tenant ON tax_rates(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_tax_trans_tenant ON tax_transactions(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_budgets_tenant ON budgets(tenant_id);
+
+    -- ============================================================
+    -- PROCUREMENT & SUPPLY CHAIN
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS suppliers (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      contact_person TEXT,
+      email TEXT,
+      phone TEXT,
+      address TEXT,
+      tax_id TEXT,
+      payment_terms TEXT DEFAULT 'net30',
+      lead_time_days INTEGER DEFAULT 7,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','inactive','blacklisted')),
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, code)
+    );
+
+    CREATE TABLE IF NOT EXISTS supplier_products (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+      product_id TEXT NOT NULL REFERENCES products(id),
+      supplier_sku TEXT,
+      unit_cost REAL NOT NULL,
+      moq INTEGER DEFAULT 1,
+      lead_time_days INTEGER,
+      is_preferred INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, supplier_id, product_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      po_number TEXT NOT NULL,
+      supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','pending_approval','approved','sent','confirmed','partially_received','received','cancelled')),
+      order_date INTEGER NOT NULL,
+      expected_date INTEGER,
+      received_date INTEGER,
+      subtotal REAL NOT NULL DEFAULT 0,
+      tax_amount REAL NOT NULL DEFAULT 0,
+      shipping_cost REAL NOT NULL DEFAULT 0,
+      total_amount REAL NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      notes TEXT,
+      shipping_address TEXT,
+      created_by TEXT,
+      approved_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, po_number)
+    );
+
+    CREATE TABLE IF NOT EXISTS purchase_order_items (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      po_id TEXT NOT NULL REFERENCES purchase_orders(id),
+      product_id TEXT NOT NULL REFERENCES products(id),
+      quantity_ordered REAL NOT NULL,
+      quantity_received REAL NOT NULL DEFAULT 0,
+      unit_cost REAL NOT NULL,
+      total_cost REAL NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS warehouse_locations (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'warehouse' CHECK(type IN ('warehouse','store','storage','returns','transit')),
+      address TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, code)
+    );
+
+    CREATE TABLE IF NOT EXISTS warehouse_bins (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      warehouse_id TEXT NOT NULL REFERENCES warehouse_locations(id),
+      code TEXT NOT NULL,
+      zone TEXT,
+      max_capacity REAL,
+      current_usage REAL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, warehouse_id, code)
+    );
+
+    CREATE TABLE IF NOT EXISTS inventory_movements (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      product_id TEXT NOT NULL REFERENCES products(id),
+      from_location_id TEXT REFERENCES warehouse_locations(id),
+      to_location_id TEXT REFERENCES warehouse_locations(id),
+      from_bin_id TEXT REFERENCES warehouse_bins(id),
+      to_bin_id TEXT REFERENCES warehouse_bins(id),
+      quantity REAL NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('transfer','receipt','adjustment','issue','return')),
+      reference_type TEXT,
+      reference_id TEXT,
+      notes TEXT,
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS drop_ship_orders (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      order_id TEXT NOT NULL REFERENCES orders(id),
+      supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent','confirmed','shipped','delivered','cancelled')),
+      customer_name TEXT NOT NULL,
+      customer_address TEXT NOT NULL,
+      shipping_method TEXT,
+      tracking_number TEXT,
+      estimated_delivery INTEGER,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS shipping_tracking (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      reference_type TEXT NOT NULL CHECK(reference_type IN ('purchase_order','sales_order','drop_ship')),
+      reference_id TEXT NOT NULL,
+      carrier TEXT,
+      tracking_number TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','picked_up','in_transit','out_for_delivery','delivered','exception')),
+      estimated_delivery INTEGER,
+      actual_delivery INTEGER,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Indexes for Procurement & Supply Chain
+    CREATE INDEX IF NOT EXISTS idx_suppliers_tenant ON suppliers(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_supplier_products_tenant ON supplier_products(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_supplier_products_supplier ON supplier_products(supplier_id);
+    CREATE INDEX IF NOT EXISTS idx_po_tenant ON purchase_orders(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_po_supplier ON purchase_orders(supplier_id);
+    CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status);
+    CREATE INDEX IF NOT EXISTS idx_po_items_po ON purchase_order_items(po_id);
+    CREATE INDEX IF NOT EXISTS idx_warehouse_tenant ON warehouse_locations(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_warehouse_bins_warehouse ON warehouse_bins(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_inv_movements_tenant ON inventory_movements(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_inv_movements_product ON inventory_movements(product_id);
+    CREATE INDEX IF NOT EXISTS idx_drop_ship_tenant ON drop_ship_orders(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_drop_ship_order ON drop_ship_orders(order_id);
+    CREATE INDEX IF NOT EXISTS idx_shipping_tracking_ref ON shipping_tracking(reference_type, reference_id);
   `);
 }

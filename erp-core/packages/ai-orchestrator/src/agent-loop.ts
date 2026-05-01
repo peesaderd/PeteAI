@@ -866,7 +866,31 @@ export class AgentLoop {
     agentName: string,
     limit: number
   ): Promise<PendingTask[]> {
-    // Try agency API first
+    // Try Task Manager API first (primary source)
+    try {
+      const result = await this.toolRouter.executeTool("task_manager_list_tasks", {
+        status: "todo",
+        assignee: agentName,
+        limit,
+      });
+
+      if (result.success && Array.isArray(result.data)) {
+        return result.data.map((t: any) => ({
+          id: t.id || t.taskId,
+          title: t.title,
+          description: t.description || "",
+          targetRole: agentName,
+          sourceRole: t.assignee || "system",
+          priority: t.priority || "medium",
+          inputData: t.inputData || {},
+          status: t.status || "pending",
+        }));
+      }
+    } catch {
+      // Task Manager might not be available
+    }
+
+    // Try agency API second
     try {
       const result = await this.toolRouter.executeTool("agency_list_tasks", {
         status: "pending",
@@ -947,6 +971,16 @@ export class AgentLoop {
 
     this.activeTasks.set(task.id, activeTask);
 
+    // Update task status to in_progress in Task Manager
+    try {
+      await this.toolRouter.executeTool("task_manager_update_task", {
+        taskId: task.id,
+        status: "in_progress",
+      });
+    } catch {
+      // best-effort
+    }
+
     // Persist initial state
     try {
       const conversationId = uuidv4();
@@ -1000,6 +1034,20 @@ export class AgentLoop {
         completedAt: Date.now(),
       })
     );
+
+    // Try to update task status on Task Manager
+    try {
+      const newStatus = task.status === "completed" ? "done" : task.status === "failed" ? "cancelled" : "in_progress";
+      await this.toolRouter.executeTool("task_manager_update_task", {
+        taskId: task.id,
+        status: newStatus,
+      });
+      console.log(
+        `[AgentLoop] ✅ Updated task ${task.id} status to ${newStatus} in Task Manager`
+      );
+    } catch {
+      // Task Manager might not be available
+    }
 
     // Try to update task status on agency platform
     try {
