@@ -45,6 +45,22 @@ interface PendingTask {
   status: string;
 }
 
+// ─── Delegation Types ─────────────────────────────────────────
+
+interface Delegation {
+  id: string;
+  sourceAgent: string;
+  targetAgent: string;
+  title: string;
+  description: string;
+  contextData: Record<string, any>;
+  status: "pending" | "in_progress" | "completed" | "rejected";
+  resultData?: Record<string, any>;
+  createdAt: number;
+  completedAt?: number;
+  parentTaskId?: string;
+}
+
 // ─── Agent Definitions ───────────────────────────────────────
 
 const AGENT_DEFINITIONS: AgentConfig[] = [
@@ -58,7 +74,7 @@ const AGENT_DEFINITIONS: AgentConfig[] = [
 4. Identify risks and mitigation strategies
 5. Provide evidence-based recommendations
 
-Use http_request to research, siyuan_get_doc to read existing knowledge, and agency_create_task to delegate.`,
+Use http_request to research, siyuan_get_doc to read existing knowledge, agency_create_task to create tasks, and agency_delegate_task to delegate subtasks to other agents (e.g., delegate prototype implementation to production).`,
     maxConcurrentTasks: 3,
     maxIterationsPerTask: 15,
   },
@@ -72,7 +88,7 @@ Use http_request to research, siyuan_get_doc to read existing knowledge, and age
 4. Evaluate ideas against criteria
 5. Provide multiple options with pros/cons
 
-Use http_request to research trends, siyuan_get_doc to read existing knowledge, and siyuan_create_doc to document ideas.`,
+Use http_request to research trends, siyuan_get_doc to read existing knowledge, siyuan_create_doc to document ideas, and agency_delegate_task to pass execution to production or design agents.`,
     maxConcurrentTasks: 3,
     maxIterationsPerTask: 15,
   },
@@ -86,7 +102,7 @@ Use http_request to research trends, siyuan_get_doc to read existing knowledge, 
 4. Create and track tasks in the system
 5. Document progress and results
 
-Use execute_command for automation, http_request to check services, and siyuan_create_doc to document progress.`,
+Use execute_command for automation, http_request to check services, siyuan_create_doc to document progress, and agency_delegate_task to request research or design input from other agents.`,
     maxConcurrentTasks: 3,
     maxIterationsPerTask: 20,
   },
@@ -100,7 +116,7 @@ Use execute_command for automation, http_request to check services, and siyuan_c
 4. Document design decisions and guidelines
 5. Coordinate with production for implementation
 
-Use siyuan_get_doc to read requirements, siyuan_create_doc for design docs, and http_request for design tools.`,
+Use siyuan_get_doc to read requirements, siyuan_create_doc for design docs, http_request for design tools, and agency_delegate_task to hand off designs to production for implementation.`,
     maxConcurrentTasks: 2,
     maxIterationsPerTask: 15,
   },
@@ -114,7 +130,7 @@ Use siyuan_get_doc to read requirements, siyuan_create_doc for design docs, and 
 4. Track campaign performance
 5. Optimize based on results
 
-Use http_request to gather market data, siyuan_create_doc for content, and agency_create_task to coordinate with design.`,
+Use http_request to gather market data, siyuan_create_doc for content, agency_create_task to coordinate with design, and agency_delegate_task to delegate campaign execution to production.`,
     maxConcurrentTasks: 2,
     maxIterationsPerTask: 15,
   },
@@ -129,6 +145,7 @@ export class AgentLoop {
   private memory: MemoryStore;
   private llm: LLMClient;
   private persistence: PersistenceManager;
+  private delegations: Map<string, Delegation> = new Map();
   private pollInterval: number;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
@@ -1178,6 +1195,116 @@ export class AgentLoop {
       }));
     }
     return this.persistence.listAllConversations();
+  }
+
+  // ─── Delegation Methods ────────────────────────────────────
+
+  createDelegation(params: {
+    sourceAgent: string;
+    targetAgent: string;
+    title: string;
+    description: string;
+    contextData?: Record<string, any>;
+    parentTaskId?: string;
+  }): Delegation {
+    const delegation: Delegation = {
+      id: uuidv4(),
+      sourceAgent: params.sourceAgent,
+      targetAgent: params.targetAgent,
+      title: params.title,
+      description: params.description,
+      contextData: params.contextData || {},
+      status: "pending",
+      createdAt: Date.now(),
+      parentTaskId: params.parentTaskId,
+    };
+    this.delegations.set(delegation.id, delegation);
+
+    // Also create a pending task so the target agent picks it up
+    const pendingTask: PendingTask = {
+      id: delegation.id,
+      title: `[DELEGATION] ${params.title}`,
+      description: `Delegated from ${params.sourceAgent}: ${params.description}
+
+Context: ${JSON.stringify(params.contextData || {}, null, 2)}`,
+      targetRole: params.targetAgent,
+      sourceRole: params.sourceAgent,
+      priority: "high",
+      inputData: {
+        delegationId: delegation.id,
+        contextData: params.contextData || {},
+        parentTaskId: params.parentTaskId,
+      },
+      status: "pending",
+    };
+
+    // Store in memory for target agent to pick up
+    const raw = this.memory.getAgentState(params.targetAgent, "erp-core", "pending_tasks");
+    const existing: PendingTask[] = raw ? JSON.parse(raw) : [];
+    existing.push(pendingTask);
+    this.memory.setAgentState(params.targetAgent, "erp-core", "pending_tasks", JSON.stringify(existing));
+
+    console.log(`[AgentLoop] 🔗 ${params.sourceAgent} delegated "${params.title}" to ${params.targetAgent} (${delegation.id.slice(0, 8)})`);
+    return delegation;
+  }
+
+  getDelegation(delegationId: string): Delegation | undefined {
+    return this.delegations.get(delegationId);
+  }
+
+  listDelegations(filters?: {
+    sourceAgent?: string;
+    targetAgent?: string;
+    status?: string;
+  }): Delegation[] {
+    let result = Array.from(this.delegations.values());
+    if (filters?.sourceAgent) {
+      result = result.filter((d) => d.sourceAgent === filters.sourceAgent);
+    }
+    if (filters?.targetAgent) {
+      result = result.filter((d) => d.targetAgent === filters.targetAgent);
+    }
+    if (filters?.status) {
+      result = result.filter((d) => d.status === filters.status);
+    }
+    return result.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  respondToDelegation(
+    delegationId: string,
+    status: "completed" | "rejected",
+    resultData?: Record<string, any>
+  ): Delegation | undefined {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) return undefined;
+
+    delegation.status = status;
+    delegation.resultData = resultData;
+    delegation.completedAt = Date.now();
+
+    // Log to source agent's memory
+    this.memory.setAgentState(
+      delegation.sourceAgent,
+      "erp-core",
+      `delegation_result_${delegationId}`,
+      JSON.stringify({
+        delegationId,
+        targetAgent: delegation.targetAgent,
+        title: delegation.title,
+        status,
+        resultData,
+        completedAt: delegation.completedAt,
+      })
+    );
+
+    console.log(`[AgentLoop] 🔗 ${delegation.targetAgent} ${status} delegation "${delegation.title}" from ${delegation.sourceAgent}`);
+    return delegation;
+  }
+
+  getPendingDelegationsForAgent(agentName: string): Delegation[] {
+    return Array.from(this.delegations.values()).filter(
+      (d) => d.targetAgent === agentName && d.status === "pending"
+    );
   }
 
 

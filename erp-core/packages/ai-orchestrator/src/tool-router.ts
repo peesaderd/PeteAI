@@ -30,6 +30,15 @@ export interface ToolResult {
 export class ToolRouter {
   private memory: MemoryStore;
   private tools: Map<string, ToolDefinition> = new Map();
+  private _agentLoop: any = null;
+
+  set agentLoop(loop: any) {
+    this._agentLoop = loop;
+  }
+
+  get agentLoop(): any {
+    return this._agentLoop;
+  }
 
   constructor(memory: MemoryStore) {
     this.memory = memory;
@@ -218,6 +227,60 @@ export class ToolRouter {
           reason: { type: "string" },
         },
         required: ["taskId"],
+      },
+      category: "agency",
+    });
+
+    this.registerTool({
+      name: "agency_delegate_task",
+      description: "Delegate a subtask to another AI agent with full context. Use when your task requires skills from another agent (e.g., R&D delegates prototype to Production, or Brainstorm delegates execution to Production).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          sourceAgent: { type: "string", description: "Your agent name (the delegator)" },
+          targetAgent: {
+            type: "string",
+            enum: ["rd", "brainstorm", "production", "design", "marketing"],
+            description: "Target agent to delegate to",
+          },
+          title: { type: "string", description: "Title of the delegated subtask" },
+          description: { type: "string", description: "Detailed description of what needs to be done" },
+          contextData: {
+            type: "object",
+            description: "Context data to pass (findings, specs, results, etc.)",
+          },
+          parentTaskId: { type: "string", description: "Original task ID if applicable" },
+        },
+        required: ["sourceAgent", "targetAgent", "title", "description"],
+      },
+      category: "agency",
+    });
+
+    this.registerTool({
+      name: "agency_list_delegations",
+      description: "List delegations sent/received by an agent",
+      inputSchema: {
+        type: "object",
+        properties: {
+          sourceAgent: { type: "string", description: "Filter by source agent" },
+          targetAgent: { type: "string", description: "Filter by target agent" },
+          status: { type: "string", enum: ["pending", "in_progress", "completed", "rejected"], description: "Filter by status" },
+        },
+      },
+      category: "agency",
+    });
+
+    this.registerTool({
+      name: "agency_respond_delegation",
+      description: "Respond to a delegation (mark as completed or rejected with results)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          delegationId: { type: "string", description: "Delegation ID to respond to" },
+          status: { type: "string", enum: ["completed", "rejected"], description: "Response status" },
+          resultData: { type: "object", description: "Results or output data from the delegated work" },
+        },
+        required: ["delegationId", "status"],
       },
       category: "agency",
     });
@@ -697,6 +760,53 @@ export class ToolRouter {
         if (!res.ok) throw new Error(`Agency API error: ${res.status}`);
         const data = await res.json();
         return { success: true, data };
+      }
+      case "agency_delegate_task": {
+        if (!this.agentLoop) {
+          return { success: false, error: "AgentLoop not available for delegation" };
+        }
+        const delegation = this.agentLoop.createDelegation({
+          sourceAgent: args.sourceAgent,
+          targetAgent: args.targetAgent,
+          title: args.title,
+          description: args.description,
+          contextData: args.contextData,
+          parentTaskId: args.parentTaskId,
+        });
+        return {
+          success: true,
+          data: {
+            delegationId: delegation.id,
+            status: delegation.status,
+            targetAgent: delegation.targetAgent,
+            title: delegation.title,
+          },
+        };
+      }
+      case "agency_list_delegations": {
+        if (!this.agentLoop) {
+          return { success: false, error: "AgentLoop not available" };
+        }
+        const delegations = this.agentLoop.listDelegations({
+          sourceAgent: args.sourceAgent,
+          targetAgent: args.targetAgent,
+          status: args.status,
+        });
+        return { success: true, data: delegations };
+      }
+      case "agency_respond_delegation": {
+        if (!this.agentLoop) {
+          return { success: false, error: "AgentLoop not available" };
+        }
+        const result = this.agentLoop.respondToDelegation(
+          args.delegationId,
+          args.status,
+          args.resultData
+        );
+        if (!result) {
+          return { success: false, error: `Delegation ${args.delegationId} not found` };
+        }
+        return { success: true, data: result };
       }
       default:
         return {

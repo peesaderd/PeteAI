@@ -31,6 +31,7 @@ async function main() {
   // Initialize LLM client and autonomous agent loop
   const llm = new LLMClient();
   const agentLoop = new AgentLoop(toolRouter, memory, llm);
+  toolRouter.agentLoop = agentLoop;
 
   // ============================================================
   // Health & Info
@@ -313,6 +314,76 @@ async function main() {
     try {
       const all = agentLoop.listPersistedConversations();
       res.json({ conversations: all });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // Delegation API — Cross-Agent Delegation
+  // ============================================================
+
+  app.post("/api/delegations", (req, res) => {
+    try {
+      const { sourceAgent, targetAgent, title, description, contextData, parentTaskId } = req.body;
+      if (!sourceAgent || !targetAgent || !title) {
+        return res.status(400).json({ error: "sourceAgent, targetAgent, and title are required" });
+      }
+      const validAgents = ["rd", "brainstorm", "production", "design", "marketing"];
+      if (!validAgents.includes(sourceAgent) || !validAgents.includes(targetAgent)) {
+        return res.status(400).json({ error: `Invalid agent. Must be one of: ${validAgents.join(", ")}` });
+      }
+      const delegation = agentLoop.createDelegation({
+        sourceAgent,
+        targetAgent,
+        title,
+        description,
+        contextData,
+        parentTaskId,
+      });
+      res.status(201).json({ success: true, data: delegation });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/delegations", (req, res) => {
+    try {
+      const { sourceAgent, targetAgent, status } = req.query;
+      const delegations = agentLoop.listDelegations({
+        sourceAgent: sourceAgent as string | undefined,
+        targetAgent: targetAgent as string | undefined,
+        status: status as string | undefined,
+      });
+      res.json({ success: true, data: delegations });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/delegations/:id", (req, res) => {
+    try {
+      const delegation = agentLoop.getDelegation(req.params.id);
+      if (!delegation) {
+        return res.status(404).json({ error: "Delegation not found" });
+      }
+      res.json({ success: true, data: delegation });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/delegations/:id/respond", (req, res) => {
+    try {
+      const { status, resultData } = req.body;
+      if (!status || !["completed", "rejected"].includes(status)) {
+        return res.status(400).json({ error: "status must be 'completed' or 'rejected'" });
+      }
+      const delegation = agentLoop.respondToDelegation(req.params.id, status, resultData);
+      if (!delegation) {
+        return res.status(404).json({ error: "Delegation not found" });
+      }
+      res.json({ success: true, data: delegation });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
