@@ -1,0 +1,67 @@
+name: CI - Build & Docker
+
+on:
+  push:
+    branches: [master, erp-core]
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+      - "docs/**"
+  pull_request:
+    branches: [master, erp-core]
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  typecheck:
+    name: TypeScript Compilation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build all packages
+        run: npm run build
+
+  docker-build:
+    name: Docker Image Build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: erp-core
+            dockerfile: Dockerfile
+          - name: knowledge-base
+            dockerfile: Dockerfile.knowledge-base
+          - name: sync-siyuan
+            dockerfile: Dockerfile.sync-siyuan
+          - name: task-manager
+            dockerfile: Dockerfile.task-manager
+          - name: ai-orchestrator
+            context: packages/ai-orchestrator
+            dockerfile: packages/ai-orchestrator/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service.name }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context || "." }}
+          file: ${{ matrix.service.dockerfile }}
+          push: false
+          load: true
+          tags: erp-core/${{ matrix.service.name }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
