@@ -3,7 +3,7 @@ import { Note, Vault, GraphNode, GraphLink } from '../types';
 import { loadVault, saveVault, createNote, generateId, extractLinks, extractTags } from '../utils/storage';
 import { fetchAllDocs, createSiYuanDoc, updateSiYuanDoc, deleteSiYuanDoc, SiYuanDoc } from '../utils/siyuanApi';
 
-const SYNC_KEY = noteforge-siyuan-sync;
+const SYNC_KEY = "noteforge-siyuan-sync";
 
 function getSyncEnabled(): boolean {
   try { return localStorage.getItem(SYNC_KEY) === true; } catch { return false; }

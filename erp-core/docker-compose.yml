@@ -16,6 +16,11 @@ services:
     - TASK_MANAGER_URL=http://task-manager:8081
     - AGENT_LOOP_ENABLED=true
     - REDIS_URL=redis://redis:6379
+    - LLM_API_URL=https://api.deepseek.com
+    - LLM_API_KEY=${DEEPSEEK_API_KEY}
+    - LLM_MODEL=deepseek-chat
+    - LLM_MAX_TOKENS=8192
+    - LLM_TEMPERATURE=0.3
     ports:
     - 54516:54516
     restart: unless-stopped
@@ -80,11 +85,16 @@ services:
     - redis
     environment:
     - SIYUAN_URL=http://siyuan:6806
-    - SIYUAN_TOKEN=
+    - SIYUAN_TOKEN=9w4oqxucqvq1o8sd
     - REPO_ROOT=/repo
     - SYSTEM_AGENT_PORT=54520
     - ORCHESTRATOR_URL=http://ai-orchestrator:54516
     - REDIS_URL=redis://redis:6379
+    - LLM_API_URL=https://api.deepseek.com
+    - LLM_API_KEY=${DEEPSEEK_API_KEY}
+    - LLM_MODEL=deepseek-chat
+    - LLM_MAX_TOKENS=8192
+    - LLM_TEMPERATURE=0.3
     ports:
     - 54520:54520
     restart: unless-stopped

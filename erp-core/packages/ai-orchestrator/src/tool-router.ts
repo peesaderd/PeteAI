@@ -10,6 +10,46 @@ const ERP_MCP_URL =
   process.env.ERP_MCP_URL || "http://localhost:54510/api/mcp";
 const AGENCY_API_URL =
   process.env.AGENCY_API_URL || "http://localhost:54515";
+// ─── Simple TTL Cache ─────────────────────────────────────────
+interface CacheEntry {
+  data: any;
+  expiresAt: number;
+}
+
+class TTLCache {
+  private store = new Map<string, CacheEntry>();
+  private defaultTTL: number;
+
+  constructor(defaultTTLMs = 5 * 60 * 1000) {
+    this.defaultTTL = defaultTTLMs;
+  }
+
+  get(key: string): { data: any; fromCache: boolean } | null {
+    const entry = this.store.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.store.delete(key);
+      return null;
+    }
+    return { data: entry.data, fromCache: true };
+  }
+
+  set(key: string, data: any, ttlMs?: number): void {
+    this.store.set(key, {
+      data,
+      expiresAt: Date.now() + (ttlMs || this.defaultTTL),
+    });
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+
+  get size(): number {
+    return this.store.size;
+  }
+}
+
 const TASK_MANAGER_URL =
   process.env.TASK_MANAGER_URL || "http://task-manager:8081";
 
@@ -28,6 +68,8 @@ export interface ToolResult {
 }
 
 export class ToolRouter {
+  private cache = new TTLCache();
+  private siyuanCache = new TTLCache(5 * 60 * 1000); // 5 min TTL for SiYuan docs
   private memory: MemoryStore;
   private tools: Map<string, ToolDefinition> = new Map();
   private _agentLoop: any = null;
@@ -582,6 +624,20 @@ export class ToolRouter {
       },
       category: "orchestrator",
     });
+
+    this.registerTool({
+      name: "siyuan_search_docs",
+      description: "Search SiYuan documents by keyword. Returns matching doc titles and IDs ranked by relevance.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          keyword: { type: "string", description: "Search keyword or phrase" },
+          limit: { type: "number", description: "Max results (default 5)" },
+        },
+        required: ["keyword"],
+      },
+      category: "orchestrator",
+    });
   }
 
   registerTool(tool: ToolDefinition): void {
@@ -903,6 +959,10 @@ export class ToolRouter {
       case "siyuan_get_doc": {
         const { id } = _args;
         if (!id) throw new Error("id is required");
+        // Check cache first
+        const cacheKey = "siyuan_get_doc:" + id;
+        const cached = this.siyuanCache.get(cacheKey);
+        if (cached) return { success: true, data: cached.data, fromCache: true };
         const siyuanUrl = process.env.SIYUAN_URL || "http://siyuan:54511";
         const siyuanToken = process.env.SIYUAN_TOKEN || "";
         const res = await fetch(`${siyuanUrl}/api/block/getBlockDOM`, {
@@ -914,7 +974,10 @@ export class ToolRouter {
           body: JSON.stringify({ id }),
         });
         const data = await res.json();
-        return { success: res.ok, data };
+        const result = { success: res.ok, data };
+        // Cache for 5 minutes
+        this.siyuanCache.set(cacheKey, result);
+        return result;
       }
       case "siyuan_create_doc": {
         const { notebookId, title, content } = _args;
@@ -947,6 +1010,62 @@ export class ToolRouter {
         });
         const data3 = await res3.json();
         return { success: res3.ok, data: data3 };
+      }
+      case "siyuan_search_docs": {
+        const { keyword, limit = 5 } = _args;
+        if (!keyword) throw new Error("keyword is required");
+        // Check cache first
+        const cacheKey = "siyuan_search:" + keyword.toLowerCase();
+        const cached = this.siyuanCache.get(cacheKey);
+        if (cached) return { success: true, data: cached.data, fromCache: true };
+        // Search via SiYuan API: use sql query to search document titles and content
+        const siyuanUrl4 = process.env.SIYUAN_URL || "http://siyuan:54511";
+        const siyuanToken4 = process.env.SIYUAN_TOKEN || "";
+        // Search by keyword in document blocks
+        const res4 = await fetch(`${siyuanUrl4}/api/query/sql`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Token ${siyuanToken4}`,
+          },
+          body: JSON.stringify({
+            stmt: `SELECT b.id, b.content, b.type, b.root_id, b.updated FROM blocks b WHERE b.content LIKE %% AND b.type = d LIMIT ${limit}`
+          }),
+        });
+        if (!res4.ok) {
+          // Fallback: list doc tree and filter by title
+          const fallbackRes = await fetch(`${siyuanUrl4}/api/filetree/listDocTree`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Token ${siyuanToken4}`,
+            },
+            body: JSON.stringify({ notebook: _args.notebookId || "" }),
+          });
+          const fallbackData = await fallbackRes.json();
+          const docs = (fallbackData.data || []).filter((d: any) =>
+            d.title && d.title.toLowerCase().includes(keyword.toLowerCase())
+          ).slice(0, limit).map((d: any) => ({
+            id: d.id,
+            title: d.title,
+            relevance: 1.0,
+          }));
+          const result = { success: true, data: docs };
+          this.siyuanCache.set(cacheKey, result);
+          return result;
+        }
+        const data4 = await res4.json();
+        // Transform results
+        const results = (data4.data || []).map((row: any) => ({
+          id: row.root_id || row.id,
+          content: row.content?.slice(0, 200) || "",
+          type: row.type,
+          updated: row.updated,
+          relevance: 1.0,
+        }));
+        const result = { success: true, data: results };
+        this.siyuanCache.set(cacheKey, result, 2 * 60 * 1000); // 2 min TTL for search
+        return result;
       }
       // ============================================================
       // Task Manager tools
@@ -1143,6 +1262,11 @@ export class ToolRouter {
       "list_kb_documents",
       "get_kb_document",
       "kb_search",
+      "ai_chat",
+      "ai_generate_product_description",
+      "ai_forecast_demand",
+      "ai_detect_fraud",
+      "ai_analyze_image",
     ];
     if (readTools.includes(toolName) && data) {
       this.memory.cacheToolResult(toolName, args, JSON.stringify(data));

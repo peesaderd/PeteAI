@@ -126,6 +126,11 @@ const TOOLS = [
     query: z.string(),
     limit: z.number().optional(),
   })),
+  tool('kb_search_rerank', 'Semantic search with relevance scoring. Returns results ranked by relevance (title match > tag match > content match).', z.object({
+    query: z.string(),
+    limit: z.number().optional(),
+    minScore: z.number().optional(),
+  })),
   tool('kb_get_graph', 'Get document graph (links between docs)', z.object({})),
   tool('kb_get_stats', 'Get knowledge base statistics', z.object({})),
 ];
@@ -210,6 +215,35 @@ function handleToolCall(name: string, args: Record<string, any>, db: Database.Da
         const docs = db.prepare('SELECT id, collection_id, title, tags, created_at, updated_at FROM documents WHERE title LIKE ? OR content LIKE ? ORDER BY updated_at DESC LIMIT ?')
           .all('%' + args.query + '%', '%' + args.query + '%', args.limit || 20);
         return { content: [{ type: 'text', text: JSON.stringify(docs, null, 2) }] };
+      }
+
+      case 'kb_search_rerank': {
+        const query = (args.query || "").toLowerCase();
+        const limit = args.limit || 10;
+        const minScore = args.minScore || 0.1;
+        const tokens = query.split(/\s+/).filter(Boolean);
+        const candidates = db.prepare(
+          "SELECT id, collection_id, title, content, tags, created_at, updated_at FROM documents WHERE title LIKE ? OR content LIKE ? ORDER BY updated_at DESC LIMIT 100"
+        ).all('%' + query + '%', '%' + query + '%');
+        const scored = (candidates as any[]).map((doc: any) => {
+          let score = 0;
+          const titleLower = (doc.title || "").toLowerCase();
+          const contentLower = (doc.content || "").toLowerCase();
+          const tags = JSON.parse(doc.tags || "[]");
+          const tagLower = tags.join(" ").toLowerCase();
+          for (const token of tokens) {
+            if (titleLower.includes(token)) score += 0.5;
+            if (tagLower.includes(token)) score += 0.3;
+            if (contentLower.includes(token)) score += 0.15;
+            if (titleLower === token) score += 0.3;
+          }
+          score = score / Math.max(1, tokens.length);
+          return { id: doc.id, collection_id: doc.collection_id, title: doc.title, tags: JSON.parse(doc.tags || "[]"), created_at: doc.created_at, updated_at: doc.updated_at, relevanceScore: Math.round(score * 100) / 100 };
+        });
+        const results = scored.filter((d: any) => d.relevanceScore >= minScore)
+          .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
+          .slice(0, limit);
+        return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
       }
 
       case 'kb_get_graph': {

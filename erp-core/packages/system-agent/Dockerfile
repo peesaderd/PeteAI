@@ -2,8 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install docker CLI for Docker management
-RUN apk add --no-cache docker-cli
+# Install docker CLI and git for doc generation
+RUN apk add --no-cache docker-cli git
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev

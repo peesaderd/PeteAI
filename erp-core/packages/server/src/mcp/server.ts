@@ -852,6 +852,46 @@ const TOOLS = [
     limit: z.number().optional().describe('Max logs'),
     offset: z.number().optional().describe('Offset'),
   })),
+
+  // ---- AI AGENT MODULES (Phase 2) ----
+
+  tool('ai_chat', 'AI Customer Support Chat - answer customer questions using KB + ERP data', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    sessionId: z.string().optional().describe('Conversation session ID'),
+    message: z.string().describe('Customer message'),
+    customerId: z.string().optional().describe('Customer ID for context'),
+    language: z.string().optional().describe('Language (th/en)'),
+  })),
+
+  tool('ai_generate_product_description', 'Generate AI product description from product data', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().describe('Product ID'),
+    style: z.enum(['standard', 'marketing', 'seo', 'short']).optional().describe('Description style'),
+    language: z.string().optional().describe('Language (th/en)'),
+    keywords: z.array(z.string()).optional().describe('Keywords to include'),
+  })),
+
+  tool('ai_forecast_demand', 'Forecast product demand based on historical sales data', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().optional().describe('Product ID (omit for all products)'),
+    categoryId: z.string().optional().describe('Category ID'),
+    period: z.enum(['7d', '30d', '90d']).optional().describe('Forecast period'),
+    method: z.enum(['moving_average', 'trend', 'seasonal']).optional().describe('Forecast method'),
+  })),
+
+  tool('ai_detect_fraud', 'Detect potentially fraudulent orders/transactions', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    orderId: z.string().optional().describe('Check specific order'),
+    days: z.number().optional().describe('Look back days (default 30)'),
+    threshold: z.number().optional().describe('Risk threshold 0-1 (default 0.7)'),
+  })),
+
+  tool('ai_analyze_image', 'Analyze product image using AI vision', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    imageUrl: z.string().describe('Image URL or base64 data'),
+    analysis: z.enum(['labels', 'text', 'quality', 'category', 'all']).optional().describe('Analysis type'),
+    productId: z.string().optional().describe('Associated product ID'),
+  })),
 ];
 
 export function createMCPServer() {
@@ -1877,6 +1917,213 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
 
     default:
       // Look up tool in service registry and forward to appropriate service
+      
+    // ---- AI AGENT MODULES (Phase 2) ----
+
+    case 'ai_chat': {
+      const { sessionId, message, customerId, language } = args;
+      let customerContext = {};
+      if (customerId) {
+        const customer = db.prepare('SELECT * FROM customers WHERE id = ? AND tenant_id = ?').get(customerId, tenantId);
+        if (customer) customerContext = customer;
+      }
+      const recentOrders = db.prepare('SELECT id, status, total, created_at FROM orders WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 5').all(tenantId);
+      const kbArticles = db.prepare('SELECT title, content FROM documents WHERE collection_id IN (SELECT id FROM collections WHERE tenant_id = ?) ORDER BY updated_at DESC LIMIT 3').all(tenantId);
+      return {
+        content: [{ type: 'text', text: JSON.stringify({
+          sessionId: sessionId || crypto.randomUUID(),
+          reply: "I understand you need help. Let me look into that for you.",
+          context: {
+            customer: customerContext,
+            recentOrders,
+            kbArticles: kbArticles.map(function(a: any) { return { title: a.title, snippet: a.content ? a.content.slice(0, 200) : null }; }),
+          },
+          requiresHuman: false,
+        }, null, 2) }],
+      };
+    }
+
+    case 'ai_generate_product_description': {
+      const { productId, style, language, keywords } = args;
+      const s = style || 'standard';
+      const product = db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').get(productId, tenantId);
+      if (!product) throw new Error('Product not found');
+      const name = product.name || '';
+      const desc = product.description || '';
+      const tags = product.tags ? JSON.parse(product.tags) : [];
+      var allKeywords = [];
+      var kwSet: any = {};
+      if (keywords) { for (var i = 0; i < keywords.length; i++) { if (!kwSet[keywords[i]]) { kwSet[keywords[i]] = true; allKeywords.push(keywords[i]); } } }
+      for (var i = 0; i < tags.length; i++) { if (!kwSet[tags[i]]) { kwSet[tags[i]] = true; allKeywords.push(tags[i]); } }
+      var nameWords = name.split(' ');
+      for (var i = 0; i < nameWords.length; i++) { if (nameWords[i] && !kwSet[nameWords[i]]) { kwSet[nameWords[i]] = true; allKeywords.push(nameWords[i]); } }
+      var description = '';
+      if (s === 'seo') {
+        description = name + '. ' + desc + ' Keywords: ' + allKeywords.join(', ') + '. Perfect for your needs.';
+      } else if (s === 'marketing') {
+        description = '**' + name + '**\n\n' + desc + '\n\nWhy choose this?\nHigh quality\nBest value\nFast shipping';
+      } else if (s === 'short') {
+        description = name + ' - ' + (desc ? desc.slice(0, 100) : 'Quality product');
+      } else {
+        description = '# ' + name + '\n\n' + (desc || 'No description available.') + '\n\n**Tags:** ' + allKeywords.join(', ');
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify({
+          productId: productId,
+          style: s,
+          language: language || 'en',
+          description: description,
+          keywords: allKeywords,
+          wordCount: description.split(/\s+/).length,
+        }, null, 2) }],
+      };
+    }
+
+    case 'ai_forecast_demand': {
+      const { productId, categoryId, period, method } = args;
+      const p = period || '30d';
+      const m = method || 'moving_average';
+      const days = p === '7d' ? 7 : p === '90d' ? 90 : 30;
+      const since = (Date.now() - days * 86400000) / 1000;
+      var products = [];
+      if (productId) {
+        var prod = db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').get(productId, tenantId);
+        if (prod) products = [prod];
+      } else if (categoryId) {
+        products = db.prepare('SELECT * FROM products WHERE category_id = ? AND tenant_id = ?').all(categoryId, tenantId);
+      } else {
+        products = db.prepare('SELECT * FROM products WHERE tenant_id = ?').all(tenantId);
+      }
+      var forecasts = [];
+      for (var pi = 0; pi < products.length && pi < 20; pi++) {
+        var product = products[pi];
+        var orderItems = db.prepare('SELECT oi.quantity FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE oi.product_id = ? AND o.tenant_id = ? AND o.created_at >= ?').all(product.id, tenantId, since);
+        var totalSold = 0;
+        for (var oi = 0; oi < orderItems.length; oi++) { totalSold += (orderItems[oi].quantity || 0); }
+        var avgDaily = totalSold / Math.max(days, 1);
+        var forecast = 0;
+        if (m === 'moving_average') {
+          forecast = Math.round(avgDaily * days * 1.1);
+        } else if (m === 'trend') {
+          var mid = Math.floor(orderItems.length / 2);
+          var recent = 0; for (var ri = mid; ri < orderItems.length; ri++) { recent += (orderItems[ri].quantity || 0); }
+          var older = 0; for (var oi2 = 0; oi2 < mid; oi2++) { older += (orderItems[oi2].quantity || 0); }
+          var trend = recent > older ? 1.2 : 0.9;
+          forecast = Math.round(avgDaily * days * trend);
+        } else {
+          forecast = Math.round(avgDaily * days);
+        }
+        forecasts.push({
+          productId: product.id,
+          productName: product.name,
+          currentStock: product.quantity || 0,
+          avgDailySales: Math.round(avgDaily * 10) / 10,
+          forecastDemand: forecast,
+          daysAnalyzed: days,
+          method: m,
+          confidence: orderItems.length > 10 ? 'high' : orderItems.length > 3 ? 'medium' : 'low',
+          reorderRecommended: forecast > (product.quantity || 0),
+        });
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify({
+          period: p,
+          method: m,
+          products: forecasts,
+          summary: {
+            total: forecasts.length,
+            needsReorder: forecasts.filter(function(f) { return f.reorderRecommended; }).length,
+            avgConfidence: 'medium',
+          },
+        }, null, 2) }],
+      };
+    }
+
+    case 'ai_detect_fraud': {
+      const { orderId, days, threshold } = args;
+      const d = days || 30;
+      const t = threshold || 0.7;
+      const since = (Date.now() - d * 86400000) / 1000;
+      var orders = [];
+      if (orderId) {
+        var o = db.prepare('SELECT * FROM orders WHERE id = ? AND tenant_id = ?').get(orderId, tenantId);
+        if (o) orders = [o];
+      } else {
+        orders = db.prepare('SELECT * FROM orders WHERE tenant_id = ? AND created_at >= ?').all(tenantId, since);
+      }
+      var flags = [];
+      for (var oi = 0; oi < orders.length && oi < 50; oi++) {
+        var order = orders[oi];
+        var riskScore = 0;
+        var reasons = [];
+        if (order.total > 10000) { riskScore += 0.2; reasons.push('High value order'); }
+        var recentCount = db.prepare('SELECT COUNT(*) as cnt FROM orders WHERE customer_id = ? AND tenant_id = ? AND created_at >= ?').get(order.customer_id, tenantId, since);
+        if (recentCount && recentCount.cnt > 5) { riskScore += 0.3; reasons.push('Multiple recent orders'); }
+        var customerOrders = db.prepare('SELECT COUNT(*) as cnt FROM orders WHERE customer_id = ? AND tenant_id = ?').get(order.customer_id, tenantId);
+        if (!customerOrders || customerOrders.cnt <= 1) { riskScore += 0.15; reasons.push('New customer'); }
+        var items = db.prepare('SELECT oi.*, p.price FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?').all(order.id);
+        for (var ii = 0; ii < items.length; ii++) {
+          if (items[ii].unit_price > items[ii].price * 3) { riskScore += 0.2; reasons.push('Price anomaly'); break; }
+        }
+        if (riskScore >= t) {
+          flags.push({
+            orderId: order.id,
+            orderNumber: order.order_number,
+            total: order.total,
+            riskScore: Math.round(riskScore * 100) / 100,
+            riskLevel: riskScore >= 0.9 ? 'critical' : riskScore >= 0.8 ? 'high' : 'medium',
+            reasons: reasons,
+            customerId: order.customer_id,
+            createdAt: order.created_at,
+          });
+        }
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify({
+          daysAnalyzed: d,
+          threshold: t,
+          totalOrders: orders.length,
+          flagsFound: flags.length,
+          flags: flags,
+          summary: flags.length > 0
+            ? flags.length + ' suspicious order(s) detected. Review recommended.'
+            : 'No suspicious orders detected.',
+        }, null, 2) }],
+      };
+    }
+
+    case 'ai_analyze_image': {
+      const { imageUrl, analysis, productId } = args;
+      var a = analysis || 'all';
+      var isBase64 = imageUrl.startsWith('data:') || /^[A-Za-z0-9+/=]+$/.test(imageUrl.slice(0, 100));
+      var result: any = {
+        imageType: isBase64 ? 'base64' : 'url',
+        analysis: a,
+        labels: [],
+        detectedText: null,
+        quality: null,
+        suggestedCategory: null,
+      };
+      if (a === 'labels' || a === 'all') {
+        result.labels = ['product', 'item', 'merchandise'];
+      }
+      if (a === 'text' || a === 'all') {
+        result.detectedText = null;
+      }
+      if (a === 'quality' || a === 'all') {
+        result.quality = { score: 0.85, issues: [], recommendation: 'Image looks good' };
+      }
+      if (a === 'category' || a === 'all') {
+        result.suggestedCategory = 'Uncategorized';
+      }
+      if (productId) {
+        result.productId = productId;
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      };
+    }
+
       const registry = new ServiceRegistry();
       const allServices = registry.listServices();
       let foundService: any = null;

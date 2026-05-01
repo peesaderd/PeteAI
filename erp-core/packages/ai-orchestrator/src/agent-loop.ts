@@ -504,13 +504,14 @@ export class AgentLoop {
       { tool: "orchestrator_list_tools", args: {} },
     ];
 
-    // Knowledge lookup: search SiYuan for relevant docs
+    // Knowledge lookup: search SiYuan for relevant docs using keyword search
+    // (lighter than fetching full documents, cached for 5 min)
     const knowledgeLookup: Array<{ tool: string; args: any }> = [
       {
-        tool: "siyuan_get_doc",
+        tool: "siyuan_search_docs",
         args: {
-          notebookId,
-          docId: notebookId, // get notebook root to find relevant docs
+          keyword: taskData.title || taskData.description || "erp core documentation",
+          limit: 3,
         },
       },
     ];

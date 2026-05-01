@@ -99,6 +99,16 @@ export class MemoryStore {
     this.d = getOrchestratorDb();
   }
 
+  createSessionWithId(id: string, agentId: string, tenantId: string, title?: string): Session {
+    const now = Math.floor(Date.now() / 1000);
+    this.d
+      .prepare(
+        "INSERT INTO sessions (id, agent_id, tenant_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+      )
+      .run(id, agentId, tenantId, title || null, now, now);
+    return this.getSession(id)!;
+  }
+
   createSession(agentId: string, tenantId: string, title?: string): Session {
     const id = uuid();
     const now = Math.floor(Date.now() / 1000);

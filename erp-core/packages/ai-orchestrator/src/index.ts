@@ -9,9 +9,11 @@ import { MemoryStore } from "./memory.js";
 import { ToolRouter } from "./tool-router.js";
 import { WebhookHandler, type WebhookEvent } from "./webhooks.js";
 import { Scheduler } from "./scheduler.js";
-import { LLMClient } from "./llm.js";
+import { LLMClient, type LLMMessage } from "./llm.js";
 import { AgentLoop } from "./agent-loop.js";
 import { RedisTaskQueue } from "./redis-queue.js";
+import { Supervisor } from "./supervisor.js";
+import { ChatWorker } from "./chat-worker.js";
 import { v4 as uuidv4 } from "uuid";
 
 const PORT = parseInt(process.env.ORCHESTRATOR_PORT || "54516", 10);
@@ -43,6 +45,34 @@ async function main() {
   }
 
   // ============================================================
+  // Supervisor — Loop Detection, Circuit Breaker, Healthcheck
+  // ============================================================
+
+  const supervisor = new Supervisor({
+    heartbeatTimeoutMs: 30000,
+    loopDetectionThreshold: 3,
+    circuitBreakerThreshold: 3,
+    circuitBreakerCooldownMs: 60000,
+    healthcheckIntervalMs: 30000,
+  });
+
+  supervisor.setAlertHandler((message: string) => {
+    console.log(`[Supervisor Alert] ${message}`);
+    // TODO: Send to Slack/LINE webhook when configured
+  });
+
+  await supervisor.connect();
+  supervisor.start();
+
+  // ============================================================
+  // Chat Worker — Processes chat messages via Redis Queue
+  // ============================================================
+
+  const chatWorker = new ChatWorker(toolRouter, memory, supervisor);
+  await chatWorker.connect();
+  chatWorker.start();
+
+  // ============================================================
   // Health & Info
   // ============================================================
 
@@ -59,6 +89,152 @@ async function main() {
   // Tool Execution API
   // For AI agents to call tools directly
   // ============================================================
+
+  // ============================================================
+  // R&D Agent Chat API (with LLM support)
+  // ============================================================
+
+  app.post("/api/chat", async (req, res) => {
+    try {
+      const { sessionId, message, agent = "rd", language = "th" } = req.body;
+      if (!message) {
+        return res.status(400).json({ error: "message is required" });
+      }
+
+      // Validate agent name
+      const validAgents = ["rd", "brainstorm", "production", "design", "marketing"];
+      const agentName = validAgents.includes(agent) ? agent : "rd";
+
+      // Generate session ID if not provided
+      const sid = sessionId || "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+
+      // Check circuit breaker before processing
+      const cb = supervisor.checkCircuitBreaker("chat-worker");
+      if (!cb.allowed) {
+        const cooldownRemaining = cb.state.cooldownUntil
+          ? Math.ceil((cb.state.cooldownUntil - Date.now()) / 1000)
+          : 60;
+        return res.json({
+          sessionId: sid,
+          response: "\u26a0\ufe0f The chat service is temporarily paused due to repeated issues. It will resume automatically in " + cooldownRemaining + " seconds. Please try again shortly.",
+          agent: agentName,
+          toolResults: [{ tool: "supervisor", result: { circuitBreaker: "open", cooldownRemaining } }],
+        });
+      }
+
+      // Check if LLM is configured
+      const llmConfigured = !!(process.env.LLM_API_KEY && process.env.LLM_API_KEY !== "sk-your-key-here");
+
+      if (llmConfigured && chatWorker.isConnected()) {
+        // Redis Queue mode: push to queue and wait for response
+        const pushed = await chatWorker.pushMessage(sid, message, agentName, language);
+        if (pushed) {
+          const response = await chatWorker.waitForResponse(sid, 30000);
+          if (response) {
+            return res.json({
+              sessionId: sid,
+              ...response,
+            });
+          }
+          console.warn("[Chat] Redis response timeout for " + sid + ", falling back to direct");
+        }
+      }
+
+      // Direct processing (fallback if Redis unavailable or timeout)
+      const agentPrompts: Record<string, string> = {
+        rd: "You are an R&D AI agent. Your role is to research, analyze, and propose innovative solutions.",
+        brainstorm: "You are a Brainstorm AI agent. Your role is to generate creative ideas and facilitate brainstorming sessions.",
+        production: "You are a Production AI agent. Your role is to oversee production processes, optimize workflows, and ensure quality control.",
+        design: "You are a Design AI agent. Your role is to create beautiful and functional designs, provide design feedback, and maintain design systems.",
+        marketing: "You are a Marketing AI agent. Your role is to develop marketing strategies, create content, and analyze market trends.",
+      };
+
+      if (llmConfigured) {
+        // Direct LLM mode
+        const systemPrompt = agentPrompts[agentName] || agentPrompts.rd;
+        const llmMessages: LLMMessage[] = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: message },
+        ];
+
+        if (language === "th") {
+          llmMessages.push({ role: "system", content: "Please respond in Thai language." });
+        }
+
+        const response = await llm.chat(llmMessages, undefined, {
+          maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096", 10),
+          temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.3"),
+        });
+
+        const reply = response.content || "I apologize, but I was unable to generate a response.";
+
+        // Ensure session exists
+        if (!memory.getSession(sid)) {
+          memory.createSessionWithId(sid, agentName, "chat");
+        }
+
+        // Store in memory
+        memory.addMessage(sid, "user", message);
+        memory.addMessage(sid, "assistant", reply);
+
+        // Record heartbeat
+        supervisor.recordHeartbeat("chat-direct", agentName, "alive");
+
+        return res.json({
+          sessionId: sid,
+          response: reply,
+          agent: agentName,
+          toolResults: [],
+        });
+      }
+
+      // Rule-based fallback
+      const msg = message.toLowerCase();
+      let response = "";
+
+      if (msg.includes("hello") || msg.includes("hi") || msg.includes("\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35")) {
+        response = "Hello! I am your **" + agentName.toUpperCase() + " Agent**. How can I help you today?";
+      } else if (msg.includes("tool") || msg.includes("what can you do") || msg.includes("help")) {
+        const tools = toolRouter.getTools();
+        response = "I have access to the following tools:\n" +
+          tools.map((t) => "  - **" + t.name + "**: " + t.description).join("\n");
+      } else if (msg.includes("research") || msg.includes("search") || msg.includes("find") || msg.includes("\u0e04\u0e49\u0e19\u0e2b\u0e32")) {
+        response = "I will help you research that. Let me search the knowledge base and explore available information.";
+      } else if (msg.includes("status") || msg.includes("health") || msg.includes("\u0e2a\u0e16\u0e32\u0e19\u0e30")) {
+        try {
+          const health = await toolRouter.executeTool("orchestrator_health", {});
+          response = "**System Status:**\n\\\`\\\`\\\`json\n" + JSON.stringify(health.data, null, 2) + "\n\\\`\\\`\\\`";
+        } catch {
+          response = "I\m running but couldn	 fetch system status.";
+        }
+      } else {
+        response = "I understand your message. As the **" + agentName.toUpperCase() + " Agent**, I can help you with research, analysis, and task delegation.\n\n" +
+          "*For full AI capabilities, please configure LLM_API_KEY in .env to enable DeepSeek.*";
+      }
+
+      // Ensure session exists
+      if (!memory.getSession(sid)) {
+        memory.createSessionWithId(sid, agentName, "chat");
+      }
+
+      // Store in memory
+      memory.addMessage(sid, "user", message);
+      memory.addMessage(sid, "assistant", response);
+
+      // Record heartbeat
+      supervisor.recordHeartbeat("chat-direct", agentName, "alive");
+
+      res.json({
+        sessionId: sid,
+        response,
+        agent: agentName,
+        toolResults: [],
+      });
+    } catch (err: any) {
+      console.error("[Chat API] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   app.post("/api/tools/:toolName", async (req, res) => {
     try {
@@ -569,6 +745,8 @@ async function main() {
     console.log(
       `[AI Orchestrator] Agent Loop: ${process.env.AGENT_LOOP_ENABLED === "true" ? "RUNNING" : "STOPPED (set AGENT_LOOP_ENABLED=true to start)"}`
     );
+    console.log(`[AI Orchestrator] Supervisor: RUNNING (loop=${supervisor.getStatus().config.loopDetectionThreshold}x, breaker=${supervisor.getStatus().config.circuitBreakerThreshold}x)`);
+    console.log(`[AI Orchestrator] Chat Worker: ${chatWorker.isConnected() ? "REDIS QUEUE" : "DIRECT MODE (Redis unavailable)"}`);
   });
 }
 

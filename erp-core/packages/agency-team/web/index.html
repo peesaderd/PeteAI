@@ -178,11 +178,61 @@
           <div class="text-xs text-gray-500">{{ task.status }}</div>
         </div>
       </div>
+
+      <!-- R&D Agent Chat -->
+      <div class="bg-white rounded-xl shadow-sm border p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">R&D Agent Chat</h2>
+        <div class="flex gap-4">
+          <!-- Chat Messages -->
+          <div class="flex-1">
+            <div ref="chatContainer" class="h-80 overflow-y-auto border rounded-lg p-4 mb-4 bg-gray-50 space-y-3">
+              <div v-if="chatMessages.length === 0" class="text-sm text-gray-400 text-center py-8">
+                Start a conversation with the R&D Agent
+              </div>
+              <div v-for="(msg, i) in chatMessages" :key="i"
+                   class="flex" :class="{ 'justify-end': msg.role === 'user', 'justify-start': msg.role === 'assistant' }">
+                <div class="max-w-[80%] rounded-lg px-4 py-2 text-sm"
+                     :class="{ 'bg-blue-600 text-white': msg.role === 'user', 'bg-white border text-gray-800': msg.role === 'assistant' }">
+                  <div class="whitespace-pre-wrap">{{ msg.content }}</div>
+                  <div v-if="msg.toolResults && msg.toolResults.length" class="mt-2 pt-2 border-t border-gray-200">
+                    <div v-for="(tr, ti) in msg.toolResults" :key="ti" class="text-xs text-gray-500 mt-1">
+                      <span class="font-medium">🔧 {{ tr.tool }}</span>
+                      <pre class="mt-1 bg-gray-100 rounded p-1 overflow-x-auto">{{ JSON.stringify(tr.result, null, 2) }}</pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-if="chatLoading" class="flex justify-start">
+                <div class="bg-white border rounded-lg px-4 py-2 text-sm text-gray-500">
+                  <span class="typing-dots">Thinking</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <select v-model="chatAgent"
+                      class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                <option value="rd">R&D</option>
+                <option value="brainstorm">Brainstorm</option>
+                <option value="production">Production</option>
+                <option value="design">Design</option>
+                <option value="marketing">Marketing</option>
+              </select>
+              <input v-model="chatInput" @keyup.enter="sendChat"
+                     placeholder="Ask the AI agent..."
+                     class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+              <button @click="sendChat" :disabled="chatLoading || !chatInput.trim()"
+                      class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 
   <script>
-    const { createApp, ref, reactive, onMounted, computed } = Vue;
+    const { createApp, ref, reactive, onMounted, computed, nextTick } = Vue;
 
     createApp({
       setup() {
@@ -199,7 +249,15 @@
           isPipeline: false,
         });
 
+        // Chat state
+        const chatMessages = ref([]);
+        const chatInput = ref('');
+        const chatAgent = ref('rd');
+        const chatLoading = ref(false);
+        const chatContainer = ref(null);
+
         const API = '/api';
+        const CHAT_API = 'http://localhost:54516/api/chat';
 
         async function fetchJSON(url) {
           const res = await fetch(url);
@@ -279,6 +337,44 @@
           await refreshAll();
         }
 
+        async function sendChat() {
+          const text = chatInput.value.trim();
+          if (!text || chatLoading.value) return;
+
+          chatMessages.value.push({ role: 'user', content: text });
+          chatInput.value = '';
+          chatLoading.value = true;
+
+          try {
+            const res = await fetch(CHAT_API, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                message: text,
+                agent: chatAgent.value,
+                language: 'th',
+              }),
+            });
+            const data = await res.json();
+            chatMessages.value.push({
+              role: 'assistant',
+              content: data.response || data.error || 'No response',
+              toolResults: data.toolResults || [],
+            });
+          } catch (e) {
+            chatMessages.value.push({
+              role: 'assistant',
+              content: 'Error: ' + e.message,
+            });
+          } finally {
+            chatLoading.value = false;
+            await nextTick();
+            if (chatContainer.value) {
+              chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+            }
+          }
+        }
+
         function timeAgo(ts) {
           const sec = Math.floor((Date.now() - ts) / 1000);
           if (sec < 60) return 'just now';
@@ -297,7 +393,7 @@
 
         onMounted(refreshAll);
 
-        return { agents, tasks, approvals, stats, newTask, refreshAll, createTask, approveTask, rejectTask, timeAgo, formatOutput };
+        return { agents, tasks, approvals, stats, newTask, refreshAll, createTask, approveTask, rejectTask, timeAgo, formatOutput, chatMessages, chatInput, chatAgent, chatLoading, chatContainer, sendChat };
       }
     }).mount('#app');
   </script>

@@ -738,5 +738,29 @@ function initializeSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_drop_ship_tenant ON drop_ship_orders(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_drop_ship_order ON drop_ship_orders(order_id);
     CREATE INDEX IF NOT EXISTS idx_shipping_tracking_ref ON shipping_tracking(reference_type, reference_id);
+
+    -- ============================================================
+    -- AI PROVIDER SELECTION
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS ai_providers (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      provider TEXT NOT NULL CHECK(provider IN (openai,deepseek,anthropic,ollama,openhands,custom)),
+      api_key TEXT NOT NULL DEFAULT ,
+      api_url TEXT,
+      model TEXT NOT NULL DEFAULT gpt-4o,
+      max_tokens INTEGER NOT NULL DEFAULT 4096,
+      temperature REAL NOT NULL DEFAULT 0.3,
+      is_active INTEGER NOT NULL DEFAULT 0,
+      is_tenant_default INTEGER NOT NULL DEFAULT 0,
+      config TEXT DEFAULT {},
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, name)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_providers_tenant ON ai_providers(tenant_id);
   `);
 }
