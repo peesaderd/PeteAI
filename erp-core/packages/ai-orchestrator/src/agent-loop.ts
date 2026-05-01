@@ -8,6 +8,8 @@
 import { ToolRouter } from "./tool-router.js";
 import { MemoryStore } from "./memory.js";
 import { LLMClient, LLMMessage, LLMToolDef } from "./llm.js";
+import { PersistenceManager, type PersistedState, type PersistedEvent } from "./persistence.js";
+import { v4 as uuidv4 } from "uuid";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -20,6 +22,7 @@ interface AgentConfig {
 }
 
 interface ActiveTask {
+  conversationId?: string;
   id: string;
   agentName: string;
   sessionId: string;
@@ -125,6 +128,7 @@ export class AgentLoop {
   private toolRouter: ToolRouter;
   private memory: MemoryStore;
   private llm: LLMClient;
+  private persistence: PersistenceManager;
   private pollInterval: number;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
@@ -134,11 +138,13 @@ export class AgentLoop {
     toolRouter: ToolRouter,
     memory: MemoryStore,
     llm: LLMClient,
+      persistence?: PersistenceManager,
     pollIntervalMs = 15000
   ) {
     this.toolRouter = toolRouter;
     this.memory = memory;
     this.llm = llm;
+      this.persistence = persistence || new PersistenceManager("./.conversations");
     this.pollInterval = pollIntervalMs;
 
     for (const def of AGENT_DEFINITIONS) {
@@ -940,6 +946,36 @@ export class AgentLoop {
     };
 
     this.activeTasks.set(task.id, activeTask);
+
+    // Persist initial state
+    try {
+      const conversationId = uuidv4();
+      activeTask.conversationId = conversationId;
+      this.persistence.saveState(agentName, {
+        conversationId,
+        agentName,
+        taskId: task.id,
+        taskTitle: task.title || "Untitled",
+        phase: 0,
+        iteration: 0,
+        status: "running",
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      this.persistence.saveEvent(agentName, conversationId, {
+        id: uuidv4(),
+        seq: 0,
+        role: "system",
+        content: `Task claimed: ${task.title}`,
+        timestamp: new Date().toISOString(),
+      });
+      console.log(
+        `[AgentLoop] 💾 Persisted initial state for ${agentName}/${conversationId.slice(0, 8)}`
+      );
+    } catch (err) {
+      console.error(`[AgentLoop] ⚠️ Failed to persist initial state:`, err);
+    }
+
     console.log(
       `[AgentLoop] 🤖 ${agentName} claimed task "${task.title}" (${task.id})`
     );
@@ -980,7 +1016,122 @@ export class AgentLoop {
     } catch {
       // best-effort
     }
+
+    // Persist final state
+    try {
+      if (task.conversationId) {
+        this.persistence.saveState(task.agentName, {
+          conversationId: task.conversationId,
+          agentName: task.agentName,
+          taskId: task.id,
+          taskTitle: task.taskData?.title || "Untitled",
+          phase: task.phase,
+          iteration: task.iteration,
+          status: task.status,
+          error: task.error,
+          startedAt: new Date(task.startedAt).toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        this.persistence.saveEvent(task.agentName, task.conversationId, {
+          id: uuidv4(),
+          seq: 0,
+          role: "system",
+          content: `Task ${task.status}: ${task.error || "completed"}`,
+          timestamp: new Date().toISOString(),
+        });
+        console.log(
+          `[AgentLoop] 💾 Persisted final state for ${task.agentName}/${task.conversationId.slice(0, 8)}`
+        );
+      }
+    } catch (err) {
+      console.error(`[AgentLoop] ⚠️ Failed to persist final state:`, err);
+    }
   }
+  // ─── Resume Task from Persistence ─────────────────────────
+
+  async resumeTask(
+    agentName: string,
+    conversationId: string
+  ): Promise<{ success: boolean; task?: ActiveTask; error?: string }> {
+    const state = this.persistence.loadState(agentName, conversationId);
+    if (!state) {
+      return { success: false, error: `No persisted state found for ${agentName}/${conversationId}` };
+    }
+
+    const agent = this.agents.get(agentName);
+    if (!agent) {
+      return { success: false, error: `Unknown agent: ${agentName}` };
+    }
+
+    // Check if task is already active
+    for (const [, existing] of this.activeTasks) {
+      if (existing.conversationId === conversationId) {
+        return { success: false, error: `Task ${existing.id} is already active` };
+      }
+    }
+
+    // Load persisted events
+    const events = this.persistence.loadEvents(agentName, conversationId);
+
+    // Create a new session in memory
+    const session = this.memory.createSession(
+      agentName,
+      "erp-core",
+      state.taskTitle
+    );
+
+    // Replay events into memory
+    for (const event of events) {
+      if (event.role === "system") {
+        this.memory.addMessage(session.id, "system", event.content);
+      } else if (event.role === "tool") {
+        this.memory.addMessage(session.id, "tool", event.content, event.metadata);
+      } else {
+        this.memory.addMessage(session.id, event.role as any, event.content);
+      }
+    }
+
+    // Create active task from persisted state
+    const activeTask: ActiveTask = {
+      id: state.taskId,
+      agentName,
+      sessionId: session.id,
+      conversationId,
+      iteration: state.iteration,
+      phase: state.phase,
+      taskData: { title: state.taskTitle },
+      startedAt: new Date(state.startedAt).getTime(),
+      status: "running",
+    };
+
+    this.activeTasks.set(state.taskId, activeTask);
+
+    // Update persisted state
+    this.persistence.saveState(agentName, {
+      ...state,
+      status: "running",
+      updatedAt: new Date().toISOString(),
+    });
+
+    console.log(
+      `[AgentLoop] 🔄 ${agentName} resumed task "${state.taskTitle}" (${state.taskId}) conv=${conversationId.slice(0, 8)} at phase=${state.phase} iter=${state.iteration}`
+    );
+
+    return { success: true, task: activeTask };
+  }
+
+  // ─── List Persisted Conversations ──────────────────────────
+
+  listPersistedConversations(agentName?: string) {
+    if (agentName) {
+      return this.persistence.listConversations(agentName).map((cid) => ({
+        conversationId: cid,
+        state: this.persistence.loadState(agentName, cid),
+      }));
+    }
+    return this.persistence.listAllConversations();
+  }
+
 
   // ─── Build LLM Tool Definitions ────────────────────────────
 
