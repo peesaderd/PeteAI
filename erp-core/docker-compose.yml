@@ -121,5 +121,66 @@ services:
     restart: unless-stopped
     volumes:
     - ./data:/app/data
+  # ── Monitoring & Observability ──────────────────────────────
+  loki:
+    image: grafana/loki:3.0.0
+    ports:
+      - 54530:3100
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    volumes:
+      - loki-data:/loki
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    command: -config.file=/etc/promtail/promtail.yml
+    restart: unless-stopped
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./monitoring/promtail.yml:/etc/promtail/promtail.yml
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - 54531:9090
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    ports:
+      - 54532:3000
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+      - ./monitoring/erp-dashboard.json:/var/lib/grafana/dashboards/erp-dashboard.json
+      - grafana-data:/var/lib/grafana
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.0
+    command:
+      - --path.rootfs=/host
+    restart: unless-stopped
+    volumes:
+      - /:/host:ro,rslave
+    pid: host
+
+
 volumes:
   redis-data: {}
+  loki-data: {}
+  prometheus-data: {}
+  grafana-data: {}

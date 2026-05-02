@@ -1,0 +1,36 @@
+{
+  "title": "ERP Core Overview",
+  "uid": "erp-core-overview",
+  "panels": [
+    {
+      "title": "Service Status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "up{service=\"erp-core\"}"}],
+      "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4}
+    },
+    {
+      "title": "Redis Status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "up{service=\"redis\"}"}],
+      "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4}
+    },
+    {
+      "title": "AI Orchestrator Status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "up{service=\"ai-orchestrator\"}"}],
+      "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4}
+    },
+    {
+      "title": "Recent Logs",
+      "type": "logs",
+      "datasource": "Loki",
+      "targets": [{"expr": "{service=\"erp-core\"}"}],
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8}
+    }
+  ],
+  "schemaVersion": 36,
+  "version": 1
+}

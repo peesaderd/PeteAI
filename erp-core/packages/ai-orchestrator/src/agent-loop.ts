@@ -432,13 +432,11 @@ export class AgentLoop {
     try {
       const result = await this.llm.chat(llmMessages, toolDefs);
 
-      // Store assistant response
-      if (result.content) {
-        this.memory.addMessage(task.sessionId, "assistant", result.content);
-      }
-
-      // Execute tool calls
+      // Store assistant response (with toolCalls if any)
       if (result.toolCalls && result.toolCalls.length > 0) {
+        this.memory.addMessage(task.sessionId, "assistant", result.content || "", {
+          toolCalls: JSON.stringify(result.toolCalls),
+        });
         for (const tc of result.toolCalls) {
           const toolResult = await this.toolRouter.executeTool(tc.name, tc.args);
           this.memory.addMessage(task.sessionId, "tool", JSON.stringify(toolResult), {
@@ -447,6 +445,8 @@ export class AgentLoop {
           });
         }
         return true; // Continue loop
+      } else if (result.content) {
+        this.memory.addMessage(task.sessionId, "assistant", result.content);
       }
 
       // No tool calls = task complete
@@ -1506,11 +1506,43 @@ Context: ${JSON.stringify(params.contextData || {}, null, 2)}`,
       if (msg.role === "system") continue; // Skip existing system messages
 
       if (msg.role === "tool") {
+        // Extract tool_call_id from stored toolCalls metadata
+        let toolCallId = msg.id;
+        if (msg.toolCalls) {
+          try {
+            const parsed = JSON.parse(msg.toolCalls);
+            if (parsed.length > 0 && parsed[0].id) {
+              toolCallId = parsed[0].id;
+            }
+          } catch (e) {}
+        }
         llmMessages.push({
           role: "tool",
           content: msg.content,
-          tool_call_id: msg.id,
+          tool_call_id: toolCallId,
         });
+      } else if (msg.role === "assistant" && msg.toolCalls) {
+        // Reconstruct tool_calls in OpenAI format for assistant messages
+        try {
+          const parsed = JSON.parse(msg.toolCalls);
+          llmMessages.push({
+            role: "assistant",
+            content: msg.content,
+            tool_calls: parsed.map((tc: any) => ({
+              id: tc.id,
+              type: "function",
+              function: {
+                name: tc.name,
+                arguments: JSON.stringify(tc.args),
+              },
+            })),
+          });
+        } catch (e) {
+          llmMessages.push({
+            role: msg.role,
+            content: msg.content,
+          });
+        }
       } else {
         llmMessages.push({
           role: msg.role,

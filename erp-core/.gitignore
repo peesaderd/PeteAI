@@ -16,3 +16,9 @@ docker-data/
 
 # Etsy connector (separate repo)
 ../etsy-connector/
+
+# Monitoring configs (templates only, actual data excluded)
+monitoring/*.db
+
+# Backup archives
+backups/

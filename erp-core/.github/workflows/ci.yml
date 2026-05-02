@@ -49,6 +49,9 @@ jobs:
           - name: ai-orchestrator
             context: packages/ai-orchestrator
             dockerfile: packages/ai-orchestrator/Dockerfile
+          - name: system-agent
+            context: packages/system-agent
+            dockerfile: packages/system-agent/Dockerfile
     steps:
       - uses: actions/checkout@v4
 
@@ -65,3 +68,13 @@ jobs:
           tags: erp-core/${{ matrix.service.name }}:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+
+  compose-validate:
+    name: Docker Compose Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: docker compose config

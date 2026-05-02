@@ -13,6 +13,14 @@ export interface LLMMessage {
   content: string;
   tool_call_id?: string;
   name?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: string;
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
 }
 
 export interface LLMToolDef {
@@ -154,7 +162,7 @@ export class LLMClient {
     options?: { maxTokens?: number; temperature?: number }
   ): Promise<{
     content: string | null;
-    toolCalls?: Array<{ name: string; args: Record<string, any> }>;
+    toolCalls?: Array<{ id: string; name: string; args: Record<string, any> }>;
     finishReason: string;
   }> {
     if (!this.isConfigured()) {
@@ -167,6 +175,7 @@ export class LLMClient {
         const msg: any = { role: m.role, content: m.content };
         if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
         if (m.name) msg.name = m.name;
+        if (m.tool_calls) msg.tool_calls = m.tool_calls;
         return msg;
       }),
       max_tokens: options?.maxTokens || this.config.maxTokens,
@@ -209,6 +218,7 @@ export class LLMClient {
       }
 
       const toolCalls = choice.message?.tool_calls?.map((tc: any) => ({
+        id: tc.id,
         name: tc.function.name,
         args: JSON.parse(tc.function.arguments),
       }));
