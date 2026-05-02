@@ -622,6 +622,115 @@ export function createRouter() {
       } catch (err: any) { res.status(400).json({ error: err.message }); }
     });
 
+    // ---- AI Provider Selection ----
+    router.get('/ai/providers', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const providers = db.prepare('SELECT * FROM ai_providers WHERE tenant_id = ? ORDER BY created_at ASC').all(tenantId);
+        res.json(providers);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.get('/ai/providers/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const provider = db.prepare('SELECT * FROM ai_providers WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!provider) return res.status(404).json({ error: 'Provider not found' });
+        res.json(provider);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/ai/providers', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { name, provider, apiKey, apiUrl, model, maxTokens, temperature, config } = req.body;
+        if (!name || !provider) return res.status(400).json({ error: 'name and provider required' });
+        const db = getDatabase();
+        const id = 'aip_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare('INSERT INTO ai_providers (id, tenant_id, name, provider, api_key, api_url, model, max_tokens, temperature, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, tenantId, name, provider, apiKey || '', apiUrl || null, model || 'gpt-4o', maxTokens || 4096, temperature ?? 0.3, JSON.stringify(config || {}), now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/ai/providers/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM ai_providers WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!existing) return res.status(404).json({ error: 'Provider not found' });
+        const { name, provider, apiKey, apiUrl, model, maxTokens, temperature, config } = req.body;
+        const now = Date.now();
+        db.prepare('UPDATE ai_providers SET name = COALESCE(?, name), provider = COALESCE(?, provider), api_key = COALESCE(?, api_key), api_url = COALESCE(?, api_url), model = COALESCE(?, model), max_tokens = COALESCE(?, max_tokens), temperature = COALESCE(?, temperature), config = COALESCE(?, config), updated_at = ? WHERE id = ? AND tenant_id = ?').run(name || null, provider || null, apiKey || null, apiUrl || null, model || null, maxTokens ?? null, temperature ?? null, config ? JSON.stringify(config) : null, now, req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.delete('/ai/providers/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM ai_providers WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!existing) return res.status(404).json({ error: 'Provider not found' });
+        db.prepare('DELETE FROM ai_providers WHERE id = ? AND tenant_id = ?').run(req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/ai/providers/:id/activate', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM ai_providers WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!existing) return res.status(404).json({ error: 'Provider not found' });
+        const now = Date.now();
+        db.prepare('UPDATE ai_providers SET is_active = 0, updated_at = ? WHERE tenant_id = ?').run(now, tenantId);
+        db.prepare('UPDATE ai_providers SET is_active = 1, is_tenant_default = 1, updated_at = ? WHERE id = ? AND tenant_id = ?').run(now, req.params.id, tenantId);
+        res.json({ id: req.params.id, is_active: true, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/ai/providers/:id/test', async (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const provider = db.prepare('SELECT * FROM ai_providers WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!provider) return res.status(404).json({ error: 'Provider not found' });
+        if (!provider.api_key) return res.status(400).json({ error: 'API key is not set' });
+        const apiUrl = provider.api_url || (provider.provider === 'openai' ? 'https://api.openai.com/v1' : provider.provider === 'deepseek' ? 'https://api.deepseek.com' : provider.provider === 'anthropic' ? 'https://api.anthropic.com/v1' : null);
+        if (!apiUrl) return res.status(400).json({ error: 'API URL not configured for this provider' });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        try {
+          const baseUrl = apiUrl.replace(/\/+$/, '');
+          const response = await fetch(baseUrl + '/models', {
+            method: 'GET',
+            headers: { 'Authorization': 'Bearer ' + provider.api_key },
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (response.ok) {
+            res.json({ success: true, message: 'Connection successful' });
+          } else {
+            const text = await response.text();
+            res.status(400).json({ success: false, message: 'Connection failed: ' + text.slice(0, 200) });
+          }
+        } catch (err: any) {
+          clearTimeout(timeout);
+          res.status(400).json({ success: false, message: 'Connection error: ' + err.message });
+        }
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
     // ---- Webhook: SiYuan sync trigger ----
     router.post('/webhooks/siyuan', async (req: Request, res: Response) => {
       try {

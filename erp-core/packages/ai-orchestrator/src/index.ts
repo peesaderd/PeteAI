@@ -13,10 +13,13 @@ import { LLMClient, type LLMMessage } from "./llm.js";
 import { AgentLoop } from "./agent-loop.js";
 import { RedisTaskQueue } from "./redis-queue.js";
 import { Supervisor } from "./supervisor.js";
+import { createClient } from "redis";
 import { ChatWorker } from "./chat-worker.js";
 import { v4 as uuidv4 } from "uuid";
+import { WorkflowEngine } from "./workflow.js";
 
 const PORT = parseInt(process.env.ORCHESTRATOR_PORT || "54516", 10);
+const REDIS_URL = process.env.REDIS_URL || "redis://docker-redis:6379";
 
 async function main() {
   const app = express();
@@ -33,7 +36,7 @@ async function main() {
   scheduler.registerDefaultJobs();
 
   // Initialize LLM client and autonomous agent loop
-  const llm = new LLMClient();
+  const llm = new LLMClient(process.env.ERP_TENANT_ID || "8347c7ab-e4e0-4cc9-ac8d-2683718602b3");
   const agentLoop = new AgentLoop(toolRouter, memory, llm);
   toolRouter.agentLoop = agentLoop;
 
@@ -54,6 +57,12 @@ async function main() {
     circuitBreakerThreshold: 3,
     circuitBreakerCooldownMs: 60000,
     healthcheckIntervalMs: 30000,
+    inactivityTimeoutMs: parseInt(process.env.SUPERVISOR_INACTIVITY_TIMEOUT_MS || "300000", 10),
+    inactivityAlertTimeoutMs: parseInt(process.env.SUPERVISOR_INACTIVITY_ALERT_TIMEOUT_MS || "900000", 10),
+    autoPromptEnabled: process.env.SUPERVISOR_AUTO_PROMPT_ENABLED !== "false",
+    slackWebhookUrl: process.env.SLACK_WEBHOOK_URL || undefined,
+    lineWebhookUrl: process.env.LINE_WEBHOOK_URL || undefined,
+    alertWebhookUrl: process.env.ALERT_WEBHOOK_URL || undefined,
   });
 
   supervisor.setAlertHandler((message: string) => {
@@ -64,6 +73,31 @@ async function main() {
   await supervisor.connect();
   supervisor.start();
 
+  // Auto-prompt handler — pushes prompt to Redis when supervisor detects inactivity
+  supervisor.setAutoPromptHandler((sessionId: string, agentName: string) => {
+    const prompts: Record<string, string> = {
+      rd: "คุณเป็น R&D Agent ของทีม ERP โปรดตรวจสอบงานที่ค้างอยู่และรายงานสถานะปัจจุบัน",
+      brainstorm: "คุณเป็น Brainstorm Agent โปรดเสนอไอเดียหรือแนวทางใหม่ๆ สำหรับระบบ ERP",
+      production: "คุณเป็น Production Agent โปรดตรวจสอบงาน implementation ที่ค้างอยู่",
+      design: "คุณเป็น Design Agent โปรดตรวจสอบ design system และ UI components",
+      marketing: "คุณเป็น Marketing Agent โปรดตรวจสอบ campaign และ content ที่ค้างอยู่",
+    };
+    const prompt = prompts[agentName] || `โปรดดำเนินการงานของคุณในฐานะ ${agentName} Agent`;
+    const redis = createClient({ url: REDIS_URL });
+    redis.connect().then(() => {
+      redis.lPush("queue:chat:messages", JSON.stringify({
+        sessionId,
+        agentName,
+        role: "user",
+        content: prompt,
+        timestamp: Date.now(),
+      })).then(() => {
+        console.log(`[Supervisor] Auto-prompt sent to ${agentName} session ${sessionId.slice(0, 8)}`);
+      }).finally(() => redis.disconnect());
+    });
+  });
+
+
   // ============================================================
   // Chat Worker — Processes chat messages via Redis Queue
   // ============================================================
@@ -71,6 +105,8 @@ async function main() {
   const chatWorker = new ChatWorker(toolRouter, memory, supervisor);
   await chatWorker.connect();
   chatWorker.start();
+const workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
+
 
   // ============================================================
   // Health & Info
@@ -107,6 +143,9 @@ async function main() {
 
       // Generate session ID if not provided
       const sid = sessionId || "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+
+      // Track activity for inactivity detection
+      supervisor.trackActivity(sid, agentName);
 
       // Check circuit breaker before processing
       const cb = supervisor.checkCircuitBreaker("chat-worker");
@@ -236,7 +275,7 @@ async function main() {
     }
   });
 
-  app.post("/api/tools/:toolName", async (req, res) => {
+app.post("/api/tools/:toolName", async (req, res) => {
     try {
       const { toolName } = req.params;
       const args = req.body.args || req.body;
@@ -247,7 +286,7 @@ async function main() {
     }
   });
 
-  app.get("/api/tools", (_req, res) => {
+app.get("/api/tools", (_req, res) => {
     const category = _req.query.category as string | undefined;
     const tools = toolRouter.getTools(category);
     res.json(
@@ -279,7 +318,7 @@ async function main() {
     }
   });
 
-  app.get("/api/sessions", (req, res) => {
+app.get("/api/sessions", (req, res) => {
     const { agent_id, tenant_id, limit } = req.query;
     const sessions = memory.listSessions(
       agent_id as string,
@@ -289,13 +328,13 @@ async function main() {
     res.json(sessions);
   });
 
-  app.get("/api/sessions/:id", (req, res) => {
+app.get("/api/sessions/:id", (req, res) => {
     const session = memory.getSession(req.params.id);
     if (!session) return res.status(404).json({ error: "Session not found" });
     res.json(session);
   });
 
-  app.get("/api/sessions/:id/context", (req, res) => {
+app.get("/api/sessions/:id/context", (req, res) => {
     const { maxMessages } = req.query;
     const context = memory.getConversationContext(
       req.params.id,
@@ -305,7 +344,7 @@ async function main() {
     res.json(context);
   });
 
-  app.get("/api/sessions/:id/messages", (req, res) => {
+app.get("/api/sessions/:id/messages", (req, res) => {
     const { limit, before } = req.query;
     const messages = memory.getSessionMessages(
       req.params.id,
@@ -315,7 +354,7 @@ async function main() {
     res.json(messages);
   });
 
-  app.post("/api/sessions/:id/messages", (req, res) => {
+app.post("/api/sessions/:id/messages", (req, res) => {
     try {
       const { role, content, toolCalls, toolResults } = req.body;
       if (!role || !content) {
@@ -347,7 +386,7 @@ async function main() {
     res.json(state);
   });
 
-  app.post("/api/agents/:agentId/state", (req, res) => {
+app.post("/api/agents/:agentId/state", (req, res) => {
     try {
       const { tenant_id, key, value } = req.body;
       if (!tenant_id || !key || value === undefined) {
@@ -404,7 +443,7 @@ async function main() {
     res.json(webhookHandler.getRules());
   });
 
-  app.post("/api/triggers", (req, res) => {
+app.post("/api/triggers", (req, res) => {
     try {
       webhookHandler.addRule(req.body);
       res.status(201).json(req.body);
@@ -427,12 +466,12 @@ async function main() {
     res.json(agentLoop.getStatus());
   });
 
-  app.post("/api/agents/loop/start", (_req, res) => {
+app.post("/api/agents/loop/start", (_req, res) => {
     agentLoop.start();
     res.json({ status: "started", agents: agentLoop.getStatus() });
   });
 
-  app.post("/api/agents/loop/stop", (_req, res) => {
+app.post("/api/agents/loop/stop", (_req, res) => {
     agentLoop.stop();
     res.json({ status: "stopped" });
   });
@@ -450,7 +489,7 @@ async function main() {
     }
   });
 
-  app.post("/api/agents/:agentId/wake", async (req, res) => {
+app.post("/api/agents/:agentId/wake", async (req, res) => {
     try {
       const result = await agentLoop.wakeAgent(req.params.agentId);
       res.json(result);
@@ -476,7 +515,7 @@ async function main() {
     }
   });
 
-  app.post("/api/queue/push", async (req, res) => {
+app.post("/api/queue/push", async (req, res) => {
     try {
       if (!redisQueue || !redisQueue.isConnected()) {
         return res.status(503).json({ error: "Redis queue not connected" });
@@ -598,7 +637,7 @@ async function main() {
     }
   });
 
-  app.get("/api/delegations", (req, res) => {
+app.get("/api/delegations", (req, res) => {
     try {
       const { sourceAgent, targetAgent, status } = req.query;
       const delegations = agentLoop.listDelegations({
@@ -612,7 +651,7 @@ async function main() {
     }
   });
 
-  app.get("/api/delegations/:id", (req, res) => {
+app.get("/api/delegations/:id", (req, res) => {
     try {
       const delegation = agentLoop.getDelegation(req.params.id);
       if (!delegation) {
@@ -624,7 +663,7 @@ async function main() {
     }
   });
 
-  app.post("/api/delegations/:id/respond", (req, res) => {
+app.post("/api/delegations/:id/respond", (req, res) => {
     try {
       const { status, resultData } = req.body;
       if (!status || !["completed", "rejected"].includes(status)) {
@@ -673,7 +712,7 @@ async function main() {
     }
   });
 
-  app.get("/api/tasks", (req, res) => {
+app.get("/api/tasks", (req, res) => {
     try {
       const assignee = req.query.assignee as string | undefined;
       const status = req.query.status as string | undefined;
@@ -718,7 +757,61 @@ async function main() {
     }
   });
 
-  // ============================================================
+  // ===============================================================================================
+  // Workflow API - Multi-Agent Collaboration
+  // ===============================================================================================
+
+  app.get("/api/workflows/templates", (_req, res) => {
+    res.json({ templates: workflowEngine.getTemplates() });
+  });
+
+  app.get("/api/workflows/templates/:id", (req, res) => {
+    const t = workflowEngine.getTemplate(req.params.id);
+    if (!t) return res.status(404).json({ error: "Template not found" });
+    res.json(t);
+  });
+
+  app.post("/api/workflows", (req, res) => {
+    try {
+      const wf = workflowEngine.createWorkflow(req.body);
+      res.status(201).json(wf);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/workflows", (req, res) => {
+    const status = req.query.status as string | undefined;
+    res.json({ workflows: workflowEngine.listWorkflows(status) });
+  });
+
+  app.get("/api/workflows/:id", (req, res) => {
+    const wf = workflowEngine.getWorkflow(req.params.id);
+    if (!wf) return res.status(404).json({ error: "Workflow not found" });
+    res.json(wf);
+  });
+
+  app.post("/api/workflows/:id/start", async (req, res) => {
+    try {
+      const wf = await workflowEngine.startWorkflow(req.params.id);
+      res.json(wf);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/workflows/:id/cancel", (req, res) => {
+    const ok = workflowEngine.cancelWorkflow(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Workflow not found or already completed" });
+    res.json({ status: "cancelled" });
+  });
+
+  app.post("/api/workflows/:id/steps/:stepId/complete", (req, res) => {
+    const ok = workflowEngine.reportStepCompletion(req.params.id, req.params.stepId, req.body.outputData || {});
+    if (!ok) return res.status(404).json({ error: "Workflow or step not found" });
+    res.json({ status: "completed" });
+  });
+// ============================================================
   // Start Server
   // ============================================================
 

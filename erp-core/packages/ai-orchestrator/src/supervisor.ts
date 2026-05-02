@@ -43,7 +43,12 @@ export interface SupervisorConfig {
   circuitBreakerThreshold: number;
   circuitBreakerCooldownMs: number;
   healthcheckIntervalMs: number;
+  inactivityTimeoutMs: number;
+  inactivityAlertTimeoutMs: number;
+  autoPromptEnabled: boolean;
   alertWebhookUrl?: string;
+  slackWebhookUrl?: string;
+  lineWebhookUrl?: string;
 }
 
 const DEFAULT_CONFIG: SupervisorConfig = {
@@ -52,6 +57,9 @@ const DEFAULT_CONFIG: SupervisorConfig = {
   circuitBreakerThreshold: 3,
   circuitBreakerCooldownMs: 60000,
   healthcheckIntervalMs: 30000,
+  inactivityTimeoutMs: 300000,       // 5 min idle → warn
+  inactivityAlertTimeoutMs: 900000,  // 15 min idle → alert
+  autoPromptEnabled: true,
 };
 
 // ─── Supervisor Class ────────────────────────────────────────
@@ -257,6 +265,150 @@ export class Supervisor {
     return Array.from(this.circuitBreakers.values());
   }
 
+  // ─── Inactivity Tracking ────────────────────────────────────
+  private sessionActivity: Map<string, { lastActivity: number; agentName: string; warned: boolean; alerted: boolean }> = new Map();
+  private onAutoPrompt: ((sessionId: string, agentName: string) => void) | null = null;
+
+  setAutoPromptHandler(handler: (sessionId: string, agentName: string) => void): void {
+    this.onAutoPrompt = handler;
+  }
+
+  trackActivity(sessionId: string, agentName: string): void {
+    this.sessionActivity.set(sessionId, {
+      lastActivity: Date.now(),
+      agentName,
+      warned: false,
+      alerted: false,
+    });
+  }
+
+  getInactiveSessions(): Array<{ sessionId: string; agentName: string; idleMs: number }> {
+    const now = Date.now();
+    const inactive: Array<{ sessionId: string; agentName: string; idleMs: number }> = [];
+    for (const [sessionId, info] of this.sessionActivity) {
+      const idleMs = now - info.lastActivity;
+      if (idleMs > this.config.inactivityTimeoutMs) {
+        inactive.push({ sessionId, agentName: info.agentName, idleMs });
+      }
+    }
+    return inactive;
+  }
+
+  private async checkInactivity(): Promise<void> {
+    if (!this.running || !this.config.autoPromptEnabled) return;
+    const now = Date.now();
+
+    for (const [sessionId, info] of this.sessionActivity) {
+      const idleMs = now - info.lastActivity;
+
+      // Alert threshold (15 min) - send Slack/LINE
+      if (idleMs > this.config.inactivityAlertTimeoutMs && !info.alerted) {
+        info.alerted = true;
+        const minutes = Math.round(idleMs / 60000);
+        this.alert(`[INACTIVITY] Session "${sessionId.slice(0, 8)}" (${info.agentName}) idle ${minutes}min — sending alert`);
+        await this.sendWebhookAlert("inactivity", {
+          sessionId,
+          agentName: info.agentName,
+          idleMinutes: minutes,
+          message: `⚠️ Chat session idle for ${minutes} minutes. Agent: ${info.agentName}`,
+        });
+      }
+
+      // Warn threshold (5 min) - auto-prompt user
+      if (idleMs > this.config.inactivityTimeoutMs && !info.warned) {
+        info.warned = true;
+        const minutes = Math.round(idleMs / 60000);
+        console.log(`[Supervisor] ⏰ Session "${sessionId.slice(0, 8)}" idle ${minutes}min — auto-prompting`);
+        if (this.onAutoPrompt) {
+          this.onAutoPrompt(sessionId, info.agentName);
+        }
+      }
+    }
+  }
+
+  clearInactivity(sessionId: string): void {
+    this.sessionActivity.delete(sessionId);
+  }
+
+  // ─── Webhook Alerts (Slack / LINE) ─────────────────────────
+
+  private async sendWebhookAlert(
+    type: string,
+    data: Record<string, any>,
+  ): Promise<void> {
+    const payload = {
+      type,
+      timestamp: Date.now(),
+      source: "supervisor",
+      ...data,
+    };
+
+    // Slack webhook
+    if (this.config.slackWebhookUrl) {
+      try {
+        const slackMsg = {
+          text: `[${type.toUpperCase()}] ${data.message || JSON.stringify(data)}`,
+          blocks: [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `*⚠️ Supervisor Alert: ${type.toUpperCase()}*
+${data.message || ""}`,
+              },
+            },
+            {
+              type: "context",
+              elements: [
+                {
+                  type: "mrkdwn",
+                  text: `Agent: ${data.agentName || "unknown"} | Time: ${new Date().toISOString()}`,
+                },
+              ],
+            },
+          ],
+        };
+        await fetch(this.config.slackWebhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(slackMsg),
+        });
+      } catch (err: any) {
+        console.warn(`[Supervisor] Slack alert failed: ${err.message}`);
+      }
+    }
+
+    // LINE webhook
+    if (this.config.lineWebhookUrl) {
+      try {
+        const lineMsg = {
+          message: `[Supervisor Alert - ${type}]
+${data.message || JSON.stringify(data)}`,
+        };
+        await fetch(this.config.lineWebhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(lineMsg),
+        });
+      } catch (err: any) {
+        console.warn(`[Supervisor] LINE alert failed: ${err.message}`);
+      }
+    }
+
+    // Generic webhook
+    if (this.config.alertWebhookUrl) {
+      try {
+        await fetch(this.config.alertWebhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch (err: any) {
+        console.warn(`[Supervisor] Webhook alert failed: ${err.message}`);
+      }
+    }
+  }
+
   // ─── Healthcheck ───────────────────────────────────────────
 
   private async healthcheck(): Promise<void> {
@@ -277,10 +429,14 @@ export class Supervisor {
       this.heartbeats.delete(id);
     }
 
+    // Check inactivity
+    await this.checkInactivity();
+
     const alive = this.heartbeats.size;
     const openBreakers = Array.from(this.circuitBreakers.values()).filter(cb => cb.state === "open").length;
-    if (alive > 0 || openBreakers > 0) {
-      console.log(`[Supervisor] Healthcheck: ${alive} workers, ${openBreakers} open circuits`);
+    const inactiveSessions = this.getInactiveSessions().length;
+    if (alive > 0 || openBreakers > 0 || inactiveSessions > 0) {
+      console.log(`[Supervisor] Healthcheck: ${alive} workers, ${openBreakers} open circuits, ${inactiveSessions} idle sessions`);
     }
   }
 

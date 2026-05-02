@@ -13,6 +13,7 @@ import KnowledgeBase from './pages/KnowledgeBase';
 import ProductionPlanning from './pages/ProductionPlanning';
 import ChannelManagement from './pages/ChannelManagement';
 import SettingsPage from './pages/Settings';
+import AIProviderSettings from './pages/AIProviderSettings';
 import NoteForgePage from './pages/NoteForge';
 
 const NAV_ITEMS = [
@@ -80,6 +81,7 @@ export default function App() {
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
             <Route path="/noteforge" element={<NoteForgePage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/ai-providers" element={<AIProviderSettings />} />
           </Routes>
         </div>
       </main>

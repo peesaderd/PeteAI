@@ -1,7 +1,11 @@
+import Database from "better-sqlite3";
+import path from "path";
+
 // ============================================================
 // LLM Client - Agent decision making via OpenAI-compatible API
 // Supports OpenAI, Anthropic, Ollama, OpenHands SDK, etc.
 // Fallback to rule-based decisions when no LLM configured
+
 // ============================================================
 
 export interface LLMMessage {
@@ -35,7 +39,7 @@ export class LLMClient {
   private tokenBudgetPeriod: number; // ms
   private tokenBudgetStart: number;
 
-  constructor() {
+  constructor(tenantId?: string) {
     this.config = {
       apiUrl: process.env.LLM_API_URL || "",
       apiKey: process.env.LLM_API_KEY || "",
@@ -48,6 +52,31 @@ export class LLMClient {
     this.tokenUsed = 0;
     this.tokenBudgetPeriod = parseInt(process.env.LLM_TOKEN_BUDGET_PERIOD || "60000", 10);
     this.tokenBudgetStart = Date.now();
+
+    // Try to load active provider from ERP Core DB (shared volume)
+    if (tenantId) {
+      this.loadProviderFromDb(tenantId);
+    }
+  }
+
+  private loadProviderFromDb(tenantId: string): void {
+    try {
+      const erpDbPath = process.env.ERP_DB_PATH || "/app/data/erp-core.db";
+      if (!require("fs").existsSync(erpDbPath)) return;
+      const db = new Database(erpDbPath);
+      const row = db.prepare("SELECT provider, api_key, api_url, model, max_tokens, temperature FROM ai_providers WHERE tenant_id = ? AND is_active = 1 LIMIT 1").get(tenantId) as any;
+      db.close();
+      if (row) {
+        if (row.api_key) this.config.apiKey = row.api_key;
+        if (row.api_url) this.config.apiUrl = row.api_url;
+        if (row.model) this.config.model = row.model;
+        if (row.max_tokens) this.config.maxTokens = row.max_tokens;
+        if (row.temperature != null) this.config.temperature = row.temperature;
+        console.log("[LLM] Loaded active provider from DB:", row.provider, row.model);
+      }
+    } catch (err) {
+      console.warn("[LLM] Could not load provider from DB, using env defaults:", err);
+    }
   }
 
   // Check if we have budget remaining

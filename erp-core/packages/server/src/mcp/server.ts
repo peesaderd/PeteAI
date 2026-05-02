@@ -892,6 +892,35 @@ const TOOLS = [
     analysis: z.enum(['labels', 'text', 'quality', 'category', 'all']).optional().describe('Analysis type'),
     productId: z.string().optional().describe('Associated product ID'),
   })),
+  tool('list_ai_providers', 'List all configured AI providers for a tenant', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('get_active_ai_provider', 'Get the currently active AI provider for a tenant', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('set_active_ai_provider', 'Set the active AI provider for a tenant', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    providerId: z.string().describe('Provider ID to activate'),
+  })),
+
+  tool('test_ai_provider', 'Test connection to an AI provider', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    providerId: z.string().describe('Provider ID to test'),
+  })),
+
+  tool('upsert_ai_provider', 'Create or update an AI provider configuration', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    providerId: z.string().optional().describe('Provider ID (omit to create new)'),
+    name: z.string().describe('Display name'),
+    provider: z.enum(['openai','deepseek','anthropic','ollama','openhands','custom']).describe('Provider type'),
+    apiKey: z.string().optional().describe('API key'),
+    apiUrl: z.string().optional().describe('Custom API URL'),
+    model: z.string().optional().describe('Model name'),
+    maxTokens: z.number().optional().describe('Max tokens'),
+    temperature: z.number().optional().describe('Temperature'),
+  })),
 ];
 
 export function createMCPServer() {
@@ -2124,13 +2153,81 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       };
     }
 
+    // ---- AI PROVIDER SELECTION ----
+
+    case 'list_ai_providers': {
+      const { tenantId } = args;
+      const providers = db.prepare('SELECT id, name, provider, api_url, model, max_tokens, temperature, is_active, is_tenant_default, created_at, updated_at FROM ai_providers WHERE tenant_id = ? ORDER BY created_at ASC').all(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(providers, null, 2) }] };
+    }
+
+    case 'get_active_ai_provider': {
+      const { tenantId } = args;
+      const provider = db.prepare('SELECT id, name, provider, api_url, model, max_tokens, temperature, is_active, is_tenant_default, created_at, updated_at FROM ai_providers WHERE tenant_id = ? AND is_active = 1').get(tenantId);
+      if (!provider) return { content: [{ type: 'text', text: JSON.stringify({ error: 'No active provider found' }) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(provider, null, 2) }] };
+    }
+
+    case 'set_active_ai_provider': {
+      const { tenantId, providerId } = args;
+      const existing = db.prepare('SELECT * FROM ai_providers WHERE id = ? AND tenant_id = ?').get(providerId, tenantId);
+      if (!existing) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Provider not found' }) }] };
+      const now = Date.now();
+      db.prepare('UPDATE ai_providers SET is_active = 0, updated_at = ? WHERE tenant_id = ?').run(now, tenantId);
+      db.prepare('UPDATE ai_providers SET is_active = 1, is_tenant_default = 1, updated_at = ? WHERE id = ? AND tenant_id = ?').run(now, providerId, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify({ success: true, providerId }) }] };
+    }
+
+    case 'test_ai_provider': {
+      const { tenantId, providerId } = args;
+      const provider = db.prepare('SELECT * FROM ai_providers WHERE id = ? AND tenant_id = ?').get(providerId, tenantId) as any;
+      if (!provider) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Provider not found' }) }] };
+      if (!provider.api_key) return { content: [{ type: 'text', text: JSON.stringify({ error: 'API key is not set' }) }] };
+      const apiUrl = provider.api_url || (provider.provider === 'openai' ? 'https://api.openai.com/v1' : provider.provider === 'deepseek' ? 'https://api.deepseek.com' : provider.provider === 'anthropic' ? 'https://api.anthropic.com/v1' : null);
+      if (!apiUrl) return { content: [{ type: 'text', text: JSON.stringify({ error: 'API URL not configured' }) }] };
+      try {
+        const baseUrl = apiUrl.replace(/\/+$/, '');
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        const response = await fetch(baseUrl + '/models', {
+          method: 'GET',
+          headers: { 'Authorization': 'Bearer ' + provider.api_key },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (response.ok) {
+          return { content: [{ type: 'text', text: JSON.stringify({ success: true, message: 'Connection successful' }) }] };
+        } else {
+          const text = await response.text();
+          return { content: [{ type: 'text', text: JSON.stringify({ success: false, message: 'Connection failed: ' + text.slice(0, 200) }) }] };
+        }
+      } catch (err: any) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, message: 'Connection error: ' + err.message }) }] };
+      }
+    }
+
+    case 'upsert_ai_provider': {
+      const { tenantId, providerId, name, provider, apiKey, apiUrl, model, maxTokens, temperature } = args;
+      const now = Date.now();
+      if (providerId) {
+        const existing = db.prepare('SELECT * FROM ai_providers WHERE id = ? AND tenant_id = ?').get(providerId, tenantId);
+        if (!existing) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Provider not found' }) }] };
+        db.prepare('UPDATE ai_providers SET name = COALESCE(?, name), provider = COALESCE(?, provider), api_key = COALESCE(?, api_key), api_url = COALESCE(?, api_url), model = COALESCE(?, model), max_tokens = COALESCE(?, max_tokens), temperature = COALESCE(?, temperature), updated_at = ? WHERE id = ? AND tenant_id = ?').run(name || null, provider || null, apiKey || null, apiUrl || null, model || null, maxTokens ?? null, temperature ?? null, now, providerId, tenantId);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, providerId }) }] };
+      } else {
+        const id = 'aip_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        db.prepare('INSERT INTO ai_providers (id, tenant_id, name, provider, api_key, api_url, model, max_tokens, temperature, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, tenantId, name, provider, apiKey || '', apiUrl || null, model || 'gpt-4o', maxTokens || 4096, temperature ?? 0.3, '{}', now, now);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, providerId: id }) }] };
+      }
+    }
+
       const registry = new ServiceRegistry();
       const allServices = registry.listServices();
       let foundService: any = null;
       let foundTool = false;
 
       for (const [svcName, svc] of Object.entries(allServices)) {
-        if (svc.tools && svc.tools.includes(name)) {
+        if (svc.tools?.includes(name)) {
           foundService = svc;
           foundTool = true;
           break;
@@ -2141,7 +2238,7 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
         // Case-insensitive fallback
         for (const [svcName, svc] of Object.entries(allServices)) {
           if (svc.tools) {
-            for (const t of svc.tools) {
+            for (const t of svc.tools!) {
               if (t.toLowerCase() === name.toLowerCase()) {
                 foundService = svc;
                 foundTool = true;

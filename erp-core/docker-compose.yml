@@ -21,6 +21,9 @@ services:
     - LLM_MODEL=deepseek-chat
     - LLM_MAX_TOKENS=8192
     - LLM_TEMPERATURE=0.3
+    - SUPERVISOR_INACTIVITY_TIMEOUT_MS=60000
+    - SUPERVISOR_INACTIVITY_ALERT_TIMEOUT_MS=120000
+    - SUPERVISOR_AUTO_PROMPT_ENABLED=true
     ports:
     - 54516:54516
     restart: unless-stopped
@@ -95,6 +98,9 @@ services:
     - LLM_MODEL=deepseek-chat
     - LLM_MAX_TOKENS=8192
     - LLM_TEMPERATURE=0.3
+    - SUPERVISOR_INACTIVITY_TIMEOUT_MS=60000
+    - SUPERVISOR_INACTIVITY_ALERT_TIMEOUT_MS=120000
+    - SUPERVISOR_AUTO_PROMPT_ENABLED=true
     ports:
     - 54520:54520
     restart: unless-stopped
