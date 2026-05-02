@@ -73,6 +73,63 @@ const TEMPLATES: WorkflowTemplate[] = [
       { agent: "marketing", title: "Launch Campaign", descriptionTemplate: "Launch: {{input}}" },
     ],
   },
+  {
+    id: "product-launch",
+    name: "Product Launch Campaign",
+    description: "Marketing -> Design -> Production for launching a product",
+    steps: [
+      { agent: "marketing", title: "Launch Strategy", descriptionTemplate: "Create launch strategy for: {{input}}" },
+      { agent: "design", title: "Campaign Assets", descriptionTemplate: "Design campaign assets for: {{input}}" },
+      { agent: "production", title: "Execute Launch", descriptionTemplate: "Execute launch plan for: {{input}}" },
+      { agent: "marketing", title: "Monitor & Optimize", descriptionTemplate: "Monitor and optimize launch of: {{input}}" },
+    ],
+  },
+  {
+    id: "bug-fix",
+    name: "Bug Fix Pipeline",
+    description: "R&D -> Production -> QA for fixing bugs",
+    steps: [
+      { agent: "rd", title: "Bug Analysis", descriptionTemplate: "Analyze bug: {{input}}" },
+      { agent: "production", title: "Implement Fix", descriptionTemplate: "Implement fix for: {{input}}" },
+      { agent: "qa", title: "Quality Assurance", descriptionTemplate: "Test and verify fix for: {{input}}" },
+      { agent: "production", title: "Deploy Fix", descriptionTemplate: "Deploy fix for: {{input}}" },
+    ],
+  },
+  {
+    id: "content-pipeline",
+    name: "Content Creation Pipeline",
+    description: "Brainstorm -> Design -> Production -> Marketing for content",
+    steps: [
+      { agent: "brainstorm", title: "Content Ideation", descriptionTemplate: "Brainstorm content ideas for: {{input}}" },
+      { agent: "design", title: "Content Design", descriptionTemplate: "Design content assets for: {{input}}" },
+      { agent: "production", title: "Content Production", descriptionTemplate: "Produce content for: {{input}}" },
+      { agent: "marketing", title: "Content Distribution", descriptionTemplate: "Distribute and promote: {{input}}" },
+    ],
+  },
+  {
+    id: "full-devops",
+    name: "DevOps Pipeline",
+    description: "Production -> QA -> DevOps for infrastructure and deployment",
+    steps: [
+      { agent: "production", title: "Build & Package", descriptionTemplate: "Build and package: {{input}}" },
+      { agent: "qa", title: "Automated Testing", descriptionTemplate: "Run automated tests for: {{input}}" },
+      { agent: "devops", title: "Deploy to Staging", descriptionTemplate: "Deploy to staging: {{input}}" },
+      { agent: "qa", title: "Staging Verification", descriptionTemplate: "Verify staging deployment: {{input}}" },
+      { agent: "devops", title: "Deploy to Production", descriptionTemplate: "Deploy to production: {{input}}" },
+    ],
+  },
+  {
+    id: "finance-budget",
+    name: "Finance & Budget Planning",
+    description: "Brainstorm -> R&D -> Finance -> Production for budget planning",
+    steps: [
+      { agent: "brainstorm", title: "Project Ideation", descriptionTemplate: "Define project scope: {{input}}" },
+      { agent: "rd", title: "Cost Research", descriptionTemplate: "Research costs for: {{input}}" },
+      { agent: "finance", title: "Budget Analysis", descriptionTemplate: "Analyze budget for: {{input}}" },
+      { agent: "production", title: "Resource Planning", descriptionTemplate: "Plan resources for: {{input}}" },
+      { agent: "finance", title: "Final Review", descriptionTemplate: "Final budget review for: {{input}}" },
+    ],
+  },
 ];
 
 export class WorkflowEngine {
