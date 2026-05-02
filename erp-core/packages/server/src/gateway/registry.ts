@@ -91,6 +91,12 @@ export class ServiceRegistry {
             'add_team_member', 'list_team_members', 'remove_team_member', 'get_audit_logs',
             'list_kb_collections', 'list_kb_documents', 'get_kb_document', 'create_kb_document',
             'get_tenant_info', 'get_subscription', 'get_usage_stats',
+            // Marketing Module tools
+            'list_campaigns', 'create_campaign', 'update_campaign', 'get_campaign_metrics',
+            'list_email_templates', 'create_email_template', 'list_email_lists', 'create_email_list',
+            'list_seo_keywords', 'create_seo_keyword',
+            'list_social_accounts', 'create_social_account', 'schedule_social_post',
+            'list_discounts', 'create_discount', 'validate_discount',
           ],
           updatedAt: Date.now(),
         },

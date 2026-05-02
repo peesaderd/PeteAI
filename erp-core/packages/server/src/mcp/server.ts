@@ -921,6 +921,132 @@ const TOOLS = [
     maxTokens: z.number().optional().describe('Max tokens'),
     temperature: z.number().optional().describe('Temperature'),
   })),
+  // ============================================================
+  // MARKETING TOOLS
+  // ============================================================
+
+  tool('list_campaigns', 'List marketing campaigns', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    status: z.string().optional().describe('Filter by status'),
+    type: z.string().optional().describe('Filter by type'),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool('create_campaign', 'Create a marketing campaign', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    name: z.string().describe('Campaign name'),
+    description: z.string().optional(),
+    type: z.enum(['email','social','seo','discount','multi']).describe('Campaign type'),
+    budget: z.number().optional(),
+    targetAudience: z.string().optional(),
+    startDate: z.number().optional(),
+    endDate: z.number().optional(),
+  })),
+
+  tool('update_campaign', 'Update a marketing campaign', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    campaignId: z.string().describe('Campaign ID'),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    status: z.enum(['draft','scheduled','active','paused','completed','cancelled']).optional(),
+    budget: z.number().optional(),
+  })),
+
+  tool('get_campaign_metrics', 'Get campaign performance metrics', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    campaignId: z.string().describe('Campaign ID'),
+  })),
+
+  tool('list_email_templates', 'List email templates', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    category: z.string().optional(),
+  })),
+
+  tool('create_email_template', 'Create an email template', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    name: z.string().describe('Template name'),
+    subject: z.string().describe('Email subject'),
+    bodyHtml: z.string().optional().describe('HTML body'),
+    bodyText: z.string().optional().describe('Plain text body'),
+    category: z.string().optional(),
+  })),
+
+  tool('list_email_lists', 'List email subscriber lists', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('create_email_list', 'Create an email subscriber list', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    name: z.string().describe('List name'),
+    description: z.string().optional(),
+  })),
+
+  tool('add_subscriber', 'Add a subscriber to an email list', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    listId: z.string().describe('List ID'),
+    email: z.string().describe('Subscriber email'),
+    name: z.string().optional(),
+  })),
+
+  tool('list_seo_keywords', 'List SEO keywords', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    productId: z.string().optional(),
+  })),
+
+  tool('create_seo_keyword', 'Create an SEO keyword tracker', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    keyword: z.string().describe('Keyword'),
+    productId: z.string().optional(),
+    targetUrl: z.string().optional(),
+    targetRanking: z.number().optional(),
+    searchVolume: z.number().optional(),
+  })),
+
+  tool('list_social_accounts', 'List social media accounts', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('create_social_account', 'Add a social media account', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    platform: z.enum(['facebook','instagram','twitter','linkedin','tiktok','line','other']).describe('Platform'),
+    label: z.string().describe('Display label'),
+    accountId: z.string().optional(),
+  })),
+
+  tool('schedule_social_post', 'Schedule a social media post', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    accountId: z.string().describe('Social account ID'),
+    content: z.string().describe('Post content'),
+    scheduledAt: z.number().describe('Scheduled timestamp'),
+    mediaUrls: z.array(z.string()).optional(),
+  })),
+
+  tool('list_discounts', 'List discount coupons', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    isActive: z.boolean().optional(),
+  })),
+
+  tool('create_discount', 'Create a discount coupon', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    code: z.string().describe('Coupon code'),
+    type: z.enum(['percentage','fixed_amount','free_shipping','buy_x_get_y']).describe('Discount type'),
+    value: z.number().describe('Discount value'),
+    minOrderAmount: z.number().optional(),
+    maxDiscountAmount: z.number().optional(),
+    usageLimit: z.number().optional(),
+    startDate: z.number().optional(),
+    endDate: z.number().optional(),
+    description: z.string().optional(),
+  })),
+
+  tool('validate_discount', 'Validate a discount code for an order', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    code: z.string().describe('Coupon code'),
+    orderAmount: z.number().describe('Order amount'),
+    customerId: z.string().optional(),
+  })),
+
 ];
 
 export function createMCPServer() {
@@ -1942,6 +2068,180 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       const difference = statementBalance - systemBalance;
       db.prepare(`INSERT INTO bank_reconciliation (id, tenant_id, account_name, statement_balance, system_balance, difference, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`).run(id, tenantId, accountName, statementBalance, systemBalance, difference, notes || null, now, now);
       return { content: [{ type: 'text', text: JSON.stringify({ id, difference, success: true }, null, 2) }] };
+    }
+
+    // ---- MARKETING MODULE (Phase 2) ----
+
+    case 'list_campaigns': {
+      const { status, type, limit, offset } = args;
+      let sql = 'SELECT * FROM marketing_campaigns WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (status) { sql += ' AND status = ?'; params.push(status); }
+      if (type) { sql += ' AND type = ?'; params.push(type); }
+      sql += ' ORDER BY created_at DESC';
+      if (limit) sql += ' LIMIT ?'; params.push(limit || 50);
+      if (offset) sql += ' OFFSET ?'; params.push(offset || 0);
+      const campaigns = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(campaigns, null, 2) }] };
+    }
+
+    case 'create_campaign': {
+      const { name, description, type, budget, targetAudience, startDate, endDate } = args;
+      const id = 'cmp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO marketing_campaigns (id, tenant_id, name, description, type, status, budget, target_audience, start_date, end_date, metrics, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, '{}', ?, ?)`).run(id, tenantId, name, description || null, type, budget || 0, targetAudience || null, startDate || null, endDate || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'update_campaign': {
+      const { campaignId, name: cName, description: cDesc, status: cStatus, budget: cBudget } = args;
+      const existing = db.prepare('SELECT * FROM marketing_campaigns WHERE id = ? AND tenant_id = ?').get(campaignId, tenantId);
+      if (!existing) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Campaign not found' }) }] };
+      const now = Date.now();
+      db.prepare(`UPDATE marketing_campaigns SET name = COALESCE(?, name), description = COALESCE(?, description), status = COALESCE(?, status), budget = COALESCE(?, budget), updated_at = ? WHERE id = ? AND tenant_id = ?`).run(cName || null, cDesc || null, cStatus || null, cBudget ?? null, now, campaignId, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify({ id: campaignId, success: true }, null, 2) }] };
+    }
+
+    case 'get_campaign_metrics': {
+      const { campaignId } = args;
+      const campaign = db.prepare('SELECT * FROM marketing_campaigns WHERE id = ? AND tenant_id = ?').get(campaignId, tenantId) as any;
+      if (!campaign) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Campaign not found' }) }] };
+      const items = db.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent FROM marketing_campaign_items WHERE campaign_id = ?").get(campaignId) as any;
+      return { content: [{ type: 'text', text: JSON.stringify({
+        campaign: { id: campaign.id, name: campaign.name, status: campaign.status, type: campaign.type },
+        items: { total: items.total, sent: items.sent },
+      }, null, 2) }] };
+    }
+
+    case 'list_email_templates': {
+      const { category } = args;
+      let sql = 'SELECT * FROM marketing_email_templates WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (category) { sql += ' AND category = ?'; params.push(category); }
+      sql += ' ORDER BY created_at DESC';
+      const templates = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(templates, null, 2) }] };
+    }
+
+    case 'create_email_template': {
+      const { name, subject, bodyHtml, bodyText, category } = args;
+      const id = 'emt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO marketing_email_templates (id, tenant_id, name, subject, body_html, body_text, category, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, name, subject, bodyHtml || null, bodyText || null, category || 'general', now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'list_email_lists': {
+      const lists = db.prepare('SELECT * FROM marketing_email_lists WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(lists, null, 2) }] };
+    }
+
+    case 'create_email_list': {
+      const { name, description } = args;
+      const id = 'eml_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO marketing_email_lists (id, tenant_id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(id, tenantId, name, description || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'add_subscriber': {
+      const { listId, email, name: subName } = args;
+      const existing = db.prepare('SELECT * FROM marketing_email_subscribers WHERE tenant_id = ? AND list_id = ? AND email = ?').get(tenantId, listId, email);
+      if (existing) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Subscriber already exists in this list' }) }] };
+      const id = 'ems_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO marketing_email_subscribers (id, tenant_id, list_id, email, name, status, subscribed_at, created_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`).run(id, tenantId, listId, email, subName || null, now, now);
+      db.prepare('UPDATE marketing_email_lists SET subscriber_count = subscriber_count + 1, updated_at = ? WHERE id = ? AND tenant_id = ?').run(now, listId, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'list_seo_keywords': {
+      const { productId } = args;
+      let sql = 'SELECT * FROM marketing_seo_keywords WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (productId) { sql += ' AND product_id = ?'; params.push(productId); }
+      sql += ' ORDER BY created_at DESC';
+      const keywords = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(keywords, null, 2) }] };
+    }
+
+    case 'create_seo_keyword': {
+      const { keyword, productId, targetUrl, targetRanking, searchVolume } = args;
+      const existing = db.prepare('SELECT * FROM marketing_seo_keywords WHERE tenant_id = ? AND keyword = ?').get(tenantId, keyword);
+      if (existing) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Keyword already tracked' }) }] };
+      const id = 'seo_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO marketing_seo_keywords (id, tenant_id, keyword, product_id, target_url, target_ranking, search_volume, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, keyword, productId || null, targetUrl || null, targetRanking || 1, searchVolume || 0, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'list_social_accounts': {
+      const accounts = db.prepare('SELECT id, tenant_id, platform, label, account_id, is_active, created_at, updated_at FROM marketing_social_accounts WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(accounts, null, 2) }] };
+    }
+
+    case 'create_social_account': {
+      const { platform, label, accountId } = args;
+      const id = 'soc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO marketing_social_accounts (id, tenant_id, platform, label, account_id, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`).run(id, tenantId, platform, label, accountId || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'schedule_social_post': {
+      const { accountId, content, scheduledAt, mediaUrls } = args;
+      const id = 'sop_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO marketing_social_posts (id, tenant_id, account_id, content, media_urls, scheduled_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`).run(id, tenantId, accountId, content, JSON.stringify(mediaUrls || []), scheduledAt, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true, status: 'scheduled' }, null, 2) }] };
+    }
+
+    case 'list_discounts': {
+      const { isActive } = args;
+      let sql = 'SELECT * FROM marketing_discounts WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (isActive !== undefined) { sql += ' AND is_active = ?'; params.push(isActive ? 1 : 0); }
+      sql += ' ORDER BY created_at DESC';
+      const discounts = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(discounts, null, 2) }] };
+    }
+
+    case 'create_discount': {
+      const { code, type, value, minOrderAmount, maxDiscountAmount, usageLimit, startDate, endDate, description } = args;
+      const existing = db.prepare('SELECT * FROM marketing_discounts WHERE tenant_id = ? AND code = ?').get(tenantId, code);
+      if (existing) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Discount code already exists' }) }] };
+      const id = 'dsc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO marketing_discounts (id, tenant_id, code, type, value, min_order_amount, max_discount_amount, usage_limit, start_date, end_date, is_active, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`).run(id, tenantId, code.toUpperCase(), type, value, minOrderAmount || 0, maxDiscountAmount || null, usageLimit || null, startDate || null, endDate || null, description || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, code: code.toUpperCase(), success: true }, null, 2) }] };
+    }
+
+    case 'validate_discount': {
+      const { code, orderAmount, customerId } = args;
+      const discount = db.prepare('SELECT * FROM marketing_discounts WHERE tenant_id = ? AND code = ? AND is_active = 1').get(tenantId, code.toUpperCase()) as any;
+      if (!discount) return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: 'Invalid or inactive discount code' }) }] };
+      const now = Date.now();
+      if (discount.start_date && now < discount.start_date) return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: 'Discount not yet active' }) }] };
+      if (discount.end_date && now > discount.end_date) return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: 'Discount has expired' }) }] };
+      if (discount.usage_limit && discount.usage_count >= discount.usage_limit) return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: 'Discount usage limit reached' }) }] };
+      if (orderAmount < discount.min_order_amount) return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: 'Minimum order amount not met', minAmount: discount.min_order_amount }) }] };
+      if (customerId && discount.per_customer_limit > 0) {
+        const usage = db.prepare('SELECT COUNT(*) as cnt FROM marketing_discount_redemptions WHERE discount_id = ? AND customer_id = ?').get(discount.id, customerId) as any;
+        if (usage.cnt >= discount.per_customer_limit) return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: 'Customer usage limit reached' }) }] };
+      }
+      let discountAmount = 0;
+      if (discount.type === 'percentage') {
+        discountAmount = orderAmount * (discount.value / 100);
+        if (discount.max_discount_amount) discountAmount = Math.min(discountAmount, discount.max_discount_amount);
+      } else if (discount.type === 'fixed_amount') {
+        discountAmount = discount.value;
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        valid: true,
+        discount: { id: discount.id, code: discount.code, type: discount.type, value: discount.value },
+        discountAmount: Math.round(discountAmount * 100) / 100,
+        finalAmount: Math.round((orderAmount - discountAmount) * 100) / 100,
+      }, null, 2) }] };
     }
 
     default:

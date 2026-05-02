@@ -762,5 +762,199 @@ function initializeSchema(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_ai_providers_tenant ON ai_providers(tenant_id);
+
+    -- ============================================================
+    -- MARKETING MODULE
+    -- ============================================================
+
+    -- Campaigns
+    CREATE TABLE IF NOT EXISTS marketing_campaigns (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      description TEXT,
+      type TEXT NOT NULL CHECK(type IN ('email','social','seo','discount','multi')),
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','scheduled','active','paused','completed','cancelled')),
+      budget REAL DEFAULT 0,
+      spent REAL DEFAULT 0,
+      target_audience TEXT,
+      start_date INTEGER,
+      end_date INTEGER,
+      channel_config TEXT DEFAULT '{}',
+      metrics TEXT DEFAULT '{}',
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Campaign Items (individual posts, emails, etc.)
+    CREATE TABLE IF NOT EXISTS marketing_campaign_items (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      campaign_id TEXT NOT NULL REFERENCES marketing_campaigns(id),
+      type TEXT NOT NULL CHECK(type IN ('email','social_post','ad','landing_page')),
+      title TEXT NOT NULL,
+      content TEXT,
+      channel TEXT,
+      scheduled_at INTEGER,
+      sent_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','scheduled','sent','failed','cancelled')),
+      metrics TEXT DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Email Templates
+    CREATE TABLE IF NOT EXISTS marketing_email_templates (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body_html TEXT,
+      body_text TEXT,
+      category TEXT DEFAULT 'general',
+      variables TEXT DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Email Lists
+    CREATE TABLE IF NOT EXISTS marketing_email_lists (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      description TEXT,
+      subscriber_count INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Email Subscribers
+    CREATE TABLE IF NOT EXISTS marketing_email_subscribers (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      list_id TEXT NOT NULL REFERENCES marketing_email_lists(id),
+      email TEXT NOT NULL,
+      name TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','unsubscribed','bounced','spam')),
+      metadata TEXT DEFAULT '{}',
+      subscribed_at INTEGER NOT NULL,
+      unsubscribed_at INTEGER,
+      UNIQUE(tenant_id, list_id, email)
+    );
+
+    -- Email Send Log
+    CREATE TABLE IF NOT EXISTS marketing_email_logs (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      campaign_item_id TEXT REFERENCES marketing_campaign_items(id),
+      template_id TEXT REFERENCES marketing_email_templates(id),
+      subscriber_id TEXT REFERENCES marketing_email_subscribers(id),
+      email TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent','delivered','opened','clicked','bounced','failed')),
+      sent_at INTEGER,
+      opened_at INTEGER,
+      clicked_at INTEGER,
+      error TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    -- SEO Keywords
+    CREATE TABLE IF NOT EXISTS marketing_seo_keywords (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      keyword TEXT NOT NULL,
+      product_id TEXT REFERENCES products(id),
+      target_url TEXT,
+      current_ranking INTEGER,
+      target_ranking INTEGER DEFAULT 1,
+      search_volume INTEGER DEFAULT 0,
+      difficulty REAL DEFAULT 0,
+      last_checked_at INTEGER,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, keyword)
+    );
+
+    -- Social Media Accounts
+    CREATE TABLE IF NOT EXISTS marketing_social_accounts (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      platform TEXT NOT NULL CHECK(platform IN ('facebook','instagram','twitter','linkedin','tiktok','line','other')),
+      label TEXT NOT NULL,
+      account_id TEXT,
+      access_token TEXT,
+      refresh_token TEXT,
+      token_expires_at INTEGER,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Social Media Posts (scheduled)
+    CREATE TABLE IF NOT EXISTS marketing_social_posts (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      account_id TEXT NOT NULL REFERENCES marketing_social_accounts(id),
+      campaign_item_id TEXT REFERENCES marketing_campaign_items(id),
+      content TEXT NOT NULL,
+      media_urls TEXT DEFAULT '[]',
+      scheduled_at INTEGER,
+      posted_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','scheduled','posted','failed','cancelled')),
+      platform_post_id TEXT,
+      metrics TEXT DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Discounts / Coupons
+    CREATE TABLE IF NOT EXISTS marketing_discounts (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      code TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('percentage','fixed_amount','free_shipping','buy_x_get_y')),
+      value REAL NOT NULL,
+      min_order_amount REAL DEFAULT 0,
+      max_discount_amount REAL,
+      usage_limit INTEGER,
+      usage_count INTEGER DEFAULT 0,
+      per_customer_limit INTEGER DEFAULT 1,
+      applies_to TEXT DEFAULT 'all' CHECK(applies_to IN ('all','specific_products','specific_categories','specific_customers')),
+      applies_to_ids TEXT DEFAULT '[]',
+      start_date INTEGER,
+      end_date INTEGER,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      description TEXT,
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, code)
+    );
+
+    -- Discount Redemption Log
+    CREATE TABLE IF NOT EXISTS marketing_discount_redemptions (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      discount_id TEXT NOT NULL REFERENCES marketing_discounts(id),
+      order_id TEXT REFERENCES orders(id),
+      customer_id TEXT REFERENCES customers(id),
+      discount_amount REAL NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mkt_campaigns_tenant ON marketing_campaigns(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_mkt_campaign_items_campaign ON marketing_campaign_items(campaign_id);
+    CREATE INDEX IF NOT EXISTS idx_mkt_email_templates_tenant ON marketing_email_templates(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_mkt_email_lists_tenant ON marketing_email_lists(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_mkt_email_subscribers_list ON marketing_email_subscribers(list_id);
+    CREATE INDEX IF NOT EXISTS idx_mkt_email_logs_tenant ON marketing_email_logs(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_mkt_seo_keywords_tenant ON marketing_seo_keywords(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_mkt_social_accounts_tenant ON marketing_social_accounts(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_mkt_social_posts_account ON marketing_social_posts(account_id);
+    CREATE INDEX IF NOT EXISTS idx_mkt_discounts_tenant ON marketing_discounts(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_mkt_discount_redemptions_discount ON marketing_discount_redemptions(discount_id);
   `);
 }
