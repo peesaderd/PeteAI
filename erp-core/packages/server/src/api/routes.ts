@@ -68,6 +68,87 @@ export function createRouter() {
   router.use('/proxy', proxyRouter);
   const uiRouter = createUIRouter();
   router.use("/ui", uiRouter);
+  
+  // Proxy to AI Orchestrator for chat
+  router.post("/orchestrator/chat", async (req: Request, res: Response) => {
+    try {
+      const orchUrl = process.env.ORCHESTRATOR_URL || "http://localhost:54516";
+      const response = await fetch(orchUrl + "/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req.body),
+      });
+      const data = await response.json();
+      res.json(data);
+    } catch (err: any) {
+      res.status(502).json({ error: "Orchestrator unavailable: " + err.message });
+    }
+  });
+
+  // Telegram webhook endpoint
+  router.post("/webhooks/telegram", async (req: Request, res: Response) => {
+    try {
+      const { message } = req.body;
+      if (!message || !message.text) return res.json({ ok: true });
+      const chatId = message.chat.id;
+      const text = message.text;
+      // Forward to AI Orchestrator
+      const orchUrl = process.env.ORCHESTRATOR_URL || "http://localhost:54516";
+      const response = await fetch(orchUrl + "/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, sessionId: "telegram_" + chatId, agent: "rd", language: "th" }),
+      });
+      const data = await response.json();
+      // Send reply back to Telegram (requires bot token)
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      if (botToken && data.response) {
+        await fetch("https://api.telegram.org/bot" + botToken + "/sendMessage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text: data.response }),
+        });
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[Telegram Webhook] Error:", err.message);
+      res.json({ ok: true });
+    }
+  });
+
+  // Alert webhook (LINE/Slack)
+  router.post("/api/alerts/send", async (req: Request, res: Response) => {
+    try {
+      const { channel, message, level } = req.body;
+      if (!channel || !message) return res.status(400).json({ error: "channel and message required" });
+      const results: any = { sent: [] };
+      if (channel === "slack" || channel === "all") {
+        const slackUrl = process.env.SLACK_WEBHOOK_URL;
+        if (slackUrl) {
+          await fetch(slackUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: "[" + (level || "INFO") + "] " + message }),
+          });
+          results.sent.push("slack");
+        }
+      }
+      if (channel === "line" || channel === "all") {
+        const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+        if (lineToken) {
+          await fetch("https://api.line.me/v2/bot/message/broadcast", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + lineToken },
+            body: JSON.stringify({ messages: [{ type: "text", text: message }] }),
+          });
+          results.sent.push("line");
+        }
+      }
+      res.json({ success: true, results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // Mount LLM Providers settings API
   const llmProvidersRouter = createLLMProvidersRouter();

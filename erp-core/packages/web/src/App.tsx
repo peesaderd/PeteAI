@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Users, BarChart3,
   Warehouse, Factory, BookOpen, Settings, CreditCard,
   ChevronRight, Menu, X, Globe, PenTool, Truck, Users2,
-  DollarSign, Megaphone, Bot, Layers
+  DollarSign, Megaphone, Bot, Layers, Shield, MessageSquare, TrendingUp
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
@@ -20,6 +20,9 @@ import Marketing from './pages/Marketing';
 import KnowledgeBase from './pages/KnowledgeBase';
 import SettingsPage from './pages/Settings';
 import LLMProviderSettings from './pages/LLMProviderSettings';
+import AIChatbot from './pages/AIChatbot';
+import Forecasting from './pages/Forecasting';
+import FraudDetection from './pages/FraudDetection';
 
 const NAV_ITEMS = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -34,6 +37,9 @@ const NAV_ITEMS = [
   { path: '/marketing', icon: Megaphone, label: 'Marketing' },
   { path: '/channels', icon: Globe, label: 'Channels' },
   { path: '/knowledge-base', icon: BookOpen, label: 'Knowledge Base' },
+  { path: '/chat', icon: MessageSquare, label: 'AI Chat' },
+  { path: '/forecasting', icon: TrendingUp, label: 'Forecasting' },
+  { path: '/fraud', icon: Shield, label: 'Fraud Detection' },
   { path: '/llm', icon: Bot, label: 'LLM' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
@@ -118,6 +124,9 @@ export default function App() {
             <Route path="/marketing" element={<Marketing />} />
             <Route path="/channels" element={<Channels />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
+            <Route path="/chat" element={<AIChatbot />} />
+            <Route path="/forecasting" element={<Forecasting />} />
+            <Route path="/fraud" element={<FraudDetection />} />
             <Route path="/llm" element={<LLMProviderSettings />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
