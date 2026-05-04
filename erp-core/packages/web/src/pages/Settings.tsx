@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, Save, RefreshCw, Shield, Users, Key, Bell, Palette, Sun, Moon, Monitor } from 'lucide-react';
+import { Settings as SettingsIcon, Save, RefreshCw, Shield, Users, Key, Bell, Palette, Sun, Moon, Monitor, Send, MessageCircle } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHeader, Input, Select, Tabs, StatCard } from '../components/ui';
 
@@ -16,44 +16,28 @@ function loadSavedTheme() {
 export default function Settings() {
   const [tab, setTab] = useState('general');
   const [saved, setSaved] = useState(false);
-  const [themeMode, setThemeMode] = useState(loadSavedTheme().themeMode || 'light');
-  const [primaryColor, setPrimaryColor] = useState(loadSavedTheme().primaryColor || '#2563eb');
-  const [layout, setLayout] = useState(loadSavedTheme().layout || 'sidebar');
-  const [fontSize, setFontSize] = useState(loadSavedTheme().fontSize || 'Medium');
+  const savedTheme = loadSavedTheme();
+  const [themeMode, setThemeMode] = useState(savedTheme.mode || 'light');
+  const [themeColor, setThemeColor] = useState(savedTheme.color || 'blue');
+  const [fontSize, setFontSize] = useState(savedTheme.fontSize || 'medium');
+  const [telegramToken, setTelegramToken] = useState(localStorage.getItem('erp_telegram_token') || '');
+  const [telegramEnabled, setTelegramEnabled] = useState(localStorage.getItem('erp_telegram_enabled') === 'true');
+  const [slackWebhook, setSlackWebhook] = useState(localStorage.getItem('erp_slack_webhook') || '');
+  const [lineToken, setLineToken] = useState(localStorage.getItem('erp_line_token') || '');
 
-  // Persist to localStorage whenever settings change
+  // Persist theme to CSS variables + localStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ themeMode, primaryColor, layout, fontSize }));
-  }, [themeMode, primaryColor, layout, fontSize]);
-
-  // Apply theme mode (dark/light/system)
-  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--mode', themeMode);
+    root.style.setProperty('--color', themeColor);
+    root.style.setProperty('--font-size', fontSize);
     if (themeMode === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else if (themeMode === 'light') {
-      document.documentElement.classList.remove('dark');
+      root.classList.add('dark');
     } else {
-      const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      if (mq.matches) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
+      root.classList.remove('dark');
     }
-  }, [themeMode]);
-
-  // Apply primary color
-  useEffect(() => {
-    document.documentElement.style.setProperty('--primary-color', primaryColor);
-    // Also update tailwind primary colors
-    document.documentElement.style.setProperty('--primary-500', primaryColor);
-  }, [primaryColor]);
-
-  // Apply font size
-  useEffect(() => {
-    const sizes: Record<string, string> = { Small: '14px', Medium: '16px', Large: '18px' };
-    document.documentElement.style.setProperty('--font-size-base', sizes[fontSize] || '16px');
-  }, [fontSize]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: themeMode, color: themeColor, fontSize }));
+  }, [themeMode, themeColor, fontSize]);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,12 +47,36 @@ export default function Settings() {
 
   const handleSaveTheme = async () => {
     try {
-      await api.ui.updateTheme({ themeMode, primaryColor, layout, fontSize });
+      await api.ui.updateTheme({ mode: themeMode, color: themeColor, fontSize });
     } catch (err) {
-      console.warn('Theme API not available, saved locally only');
+      console.warn('Theme API unavailable, saved locally');
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const saveIntegrations = () => {
+    localStorage.setItem('erp_telegram_token', telegramToken);
+    localStorage.setItem('erp_telegram_enabled', telegramEnabled ? 'true' : 'false');
+    localStorage.setItem('erp_slack_webhook', slackWebhook);
+    localStorage.setItem('erp_line_token', lineToken);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const testTelegram = async () => {
+    if (!telegramToken) return alert('Please enter a Telegram Bot Token first');
+    try {
+      const res = await fetch('https://api.telegram.org/bot' + telegramToken + '/getMe');
+      const data = await res.json();
+      if (data.ok) {
+        alert('Connection successful! Bot: @' + data.result.username);
+      } else {
+        alert('Connection failed: ' + data.description);
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
   };
 
   const tabs = [
@@ -76,6 +84,7 @@ export default function Settings() {
     { id: 'users', label: 'Users & Security' },
     { id: 'notifications', label: 'Notifications' },
     { id: 'appearance', label: 'Appearance' },
+    { id: 'telegram', label: 'Telegram' },
   ];
 
   return (
@@ -140,42 +149,29 @@ export default function Settings() {
               </div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Primary Color</h3>
-              <div className="flex gap-3 flex-wrap">
-                {[
-                  { color: '#2563eb', label: 'Blue' }, { color: '#7c3aed', label: 'Purple' },
-                  { color: '#059669', label: 'Emerald' }, { color: '#dc2626', label: 'Red' },
-                  { color: '#d97706', label: 'Amber' }, { color: '#0891b2', label: 'Cyan' },
-                  { color: '#db2777', label: 'Pink' }, { color: '#1e293b', label: 'Slate' },
-                ].map(c => (
-                  <button key={c.color} onClick={() => setPrimaryColor(c.color)} className="flex flex-col items-center gap-1.5 group">
-                    <div className={`w-10 h-10 rounded-full border-2 transition-all ${primaryColor === c.color ? 'border-blue-500 ring-2 ring-blue-200' : 'border-transparent group-hover:border-gray-300'}`}
-                      style={{ backgroundColor: c.color }} />
-                    <span className="text-xs text-gray-500">{c.label}</span>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Palette size={20} className="text-purple-500" /> Theme Colors
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[{ id: 'blue', label: 'Blue', class: 'bg-blue-500' }, { id: 'indigo', label: 'Indigo', class: 'bg-indigo-500' }, { id: 'purple', label: 'Purple', class: 'bg-purple-500' }, { id: 'emerald', label: 'Emerald', class: 'bg-emerald-500' }].map(color => (
+                  <button key={color.id} onClick={() => setThemeColor(color.id)}
+                    className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${themeColor === color.id ? 'border-blue-500' : 'border-gray-200'}`}>
+                    <div className={`w-6 h-6 rounded-full ${color.class}`} />
+                    <span className="text-sm font-medium text-gray-900">{color.label}</span>
                   </button>
                 ))}
               </div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Layout</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-gray-50 ${layout === 'sidebar' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
-                  <input type="radio" name="layout" checked={layout === 'sidebar'} onChange={() => setLayout('sidebar')} className="text-blue-600" />
-                  <div><span className="text-sm font-medium text-gray-900">Sidebar</span><p className="text-xs text-gray-500">Navigation sidebar on the left</p></div>
-                </label>
-                <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-gray-50 ${layout === 'topbar' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
-                  <input type="radio" name="layout" checked={layout === 'topbar'} onChange={() => setLayout('topbar')} className="text-blue-600" />
-                  <div><span className="text-sm font-medium text-gray-900">Topbar</span><p className="text-xs text-gray-500">Navigation bar on top</p></div>
-                </label>
-              </div>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Font Size</h3>
-              <div className="flex gap-3">
-                {['Small', 'Medium', 'Large'].map(size => (
-                  <button key={size} onClick={() => setFontSize(size)}
-                    className={`px-6 py-3 rounded-lg border-2 text-sm font-medium transition-all ${fontSize === size ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
-                    {size}
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Palette size={20} className="text-purple-500" /> Font Size
+              </h3>
+              <div className="flex gap-4">
+                {[{ id: 'small', label: 'Small', desc: '14px' }, { id: 'medium', label: 'Medium', desc: '16px' }, { id: 'large', label: 'Large', desc: '18px' }].map(size => (
+                  <button key={size.id} onClick={() => setFontSize(size.id)}
+                    className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${fontSize === size.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <span className="font-medium text-sm text-gray-900">{size.label}</span>
+                    <span className="text-xs text-gray-500">{size.desc}</span>
                   </button>
                 ))}
               </div>
@@ -183,6 +179,75 @@ export default function Settings() {
             <div className="flex justify-end">
               <button type="button" onClick={handleSaveTheme} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-lg hover:bg-blue-700 text-sm font-medium">
                 <Save size={16} /> {saved ? 'Saved!' : 'Save Theme'}
+              </button>
+            </div>
+          </div>
+        )}
+        {tab === 'telegram' && (
+          <div className="max-w-2xl space-y-6">
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Send size={20} className="text-blue-500" /> Telegram Bot Settings
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                เชื่อมต่อ Telegram Bot เพื่อให้ AI Chatbot สามารถตอบกลับผ่าน Telegram ได้
+              </p>
+              <div className="space-y-4">
+                <Input
+                  label="Bot Token"
+                  name="telegram_bot_token"
+                  type="password"
+                  placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+                  defaultValue={telegramToken}
+                  onChange={(e: any) => setTelegramToken(e.target.value)}
+                />
+                <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600 space-y-2">
+                  <p className="font-medium text-gray-800">วิธีการตั้งค่า:</p>
+                  <ol className="list-decimal list-inside space-y-1">
+                    <li>เปิด Telegram ค้นหา <code className="bg-gray-200 px-1 rounded">@BotFather</code></li>
+                    <li>ส่งคำสั่ง <code className="bg-gray-200 px-1 rounded">/newbot</code> และทำตามขั้นตอน</li>
+                    <li>คัดลอก Token ที่ได้มาใส่ด้านบน</li>
+                    <li>ตั้งค่า Webhook URL: <code className="bg-gray-200 px-1 rounded">https://your-domain.com/api/webhooks/telegram</code></li>
+                  </ol>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input type="checkbox" id="telegram_enabled" defaultChecked={telegramEnabled} onChange={(e) => setTelegramEnabled(e.target.checked)} className="rounded border-gray-300" />
+                  <label htmlFor="telegram_enabled" className="text-sm text-gray-700">เปิดใช้งาน Telegram Bot</label>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <MessageCircle size={20} className="text-green-500" /> LINE / Slack Alerts
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                รับการแจ้งเตือนเมื่อ Fraud Detection พบออเดอร์ต้องสงสัย
+              </p>
+              <div className="space-y-4">
+                <Input
+                  label="Slack Webhook URL"
+                  name="slack_webhook"
+                  type="url"
+                  placeholder="https://hooks.slack.com/services/..."
+                  defaultValue={slackWebhook}
+                  onChange={(e: any) => setSlackWebhook(e.target.value)}
+                />
+                <Input
+                  label="LINE Channel Access Token"
+                  name="line_token"
+                  type="password"
+                  placeholder="LINE Channel Access Token"
+                  defaultValue={lineToken}
+                  onChange={(e: any) => setLineToken(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={testTelegram} className="flex items-center gap-2 px-6 py-2.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-sm font-medium">
+                <Send size={16} /> Test Connection
+              </button>
+              <button onClick={saveIntegrations} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-lg hover:bg-blue-700 text-sm font-medium">
+                <Save size={16} /> {saved ? 'Saved!' : 'Save Settings'}
               </button>
             </div>
           </div>
