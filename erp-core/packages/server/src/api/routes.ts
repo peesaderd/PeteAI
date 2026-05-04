@@ -622,6 +622,369 @@ export function createRouter() {
       } catch (err: any) { res.status(400).json({ error: err.message }); }
     });
 
+
+    // ---- Marketing: Campaigns ----
+    router.get('/marketing/campaigns', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const rows = db.prepare('SELECT * FROM marketing_campaigns WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+        res.json(rows);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/marketing/campaigns', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { name, type, status, startDate, endDate, budget, channel, target, content } = req.body;
+        const id = 'cmp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare('INSERT INTO marketing_campaigns (id, tenant_id, name, type, status, start_date, end_date, budget, channel, target, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, tenantId, name, type || null, status || 'draft', startDate || null, endDate || null, budget || null, channel || null, target || null, content || null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.get('/marketing/campaigns/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const row = db.prepare('SELECT * FROM marketing_campaigns WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!row) return res.status(404).json({ error: 'Campaign not found' });
+        res.json(row);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/marketing/campaigns/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM marketing_campaigns WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!existing) return res.status(404).json({ error: 'Campaign not found' });
+        const { name, type, status, startDate, endDate, budget, channel, target, content } = req.body;
+        const now = Date.now();
+        db.prepare('UPDATE marketing_campaigns SET name = COALESCE(?, name), type = COALESCE(?, type), status = COALESCE(?, status), start_date = COALESCE(?, start_date), end_date = COALESCE(?, end_date), budget = COALESCE(?, budget), channel = COALESCE(?, channel), target = COALESCE(?, target), content = COALESCE(?, content), updated_at = ? WHERE id = ? AND tenant_id = ?').run(name || null, type || null, status || null, startDate || null, endDate || null, budget ?? null, channel || null, target || null, content || null, now, req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.delete('/marketing/campaigns/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM marketing_campaigns WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!existing) return res.status(404).json({ error: 'Campaign not found' });
+        db.prepare('DELETE FROM marketing_campaigns WHERE id = ? AND tenant_id = ?').run(req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.get('/marketing/campaigns/:id/metrics', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const row = db.prepare('SELECT * FROM marketing_campaign_metrics WHERE campaign_id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        res.json(row || { impressions: 0, clicks: 0, conversions: 0, revenue: 0 });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // ---- Marketing: Email Templates ----
+    router.get('/marketing/email-templates', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const rows = db.prepare('SELECT * FROM marketing_email_templates WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+        res.json(rows);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/marketing/email-templates', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { name, subject, body, variables } = req.body;
+        const id = 'emt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare('INSERT INTO marketing_email_templates (id, tenant_id, name, subject, body, variables, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, tenantId, name, subject, body, variables ? JSON.stringify(variables) : null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/marketing/email-templates/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM marketing_email_templates WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!existing) return res.status(404).json({ error: 'Template not found' });
+        const { name, subject, body, variables } = req.body;
+        const now = Date.now();
+        db.prepare('UPDATE marketing_email_templates SET name = COALESCE(?, name), subject = COALESCE(?, subject), body = COALESCE(?, body), variables = COALESCE(?, variables), updated_at = ? WHERE id = ? AND tenant_id = ?').run(name || null, subject || null, body || null, variables ? JSON.stringify(variables) : null, now, req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.delete('/marketing/email-templates/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM marketing_email_templates WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!existing) return res.status(404).json({ error: 'Template not found' });
+        db.prepare('DELETE FROM marketing_email_templates WHERE id = ? AND tenant_id = ?').run(req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // ---- Marketing: Email Lists & Subscribers ----
+    router.get('/marketing/email-lists', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const rows = db.prepare('SELECT * FROM marketing_email_lists WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+        res.json(rows);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/marketing/email-lists', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { name, description } = req.body;
+        const id = 'eml_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare('INSERT INTO marketing_email_lists (id, tenant_id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, tenantId, name, description || null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.get('/marketing/email-lists/:id/subscribers', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const rows = db.prepare('SELECT * FROM marketing_subscribers WHERE list_id = ? AND tenant_id = ?').all(req.params.id, tenantId);
+        res.json(rows);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/marketing/subscribers', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { listId, email, name, metadata } = req.body;
+        if (!listId || !email) return res.status(400).json({ error: 'listId and email required' });
+        const id = 'sub_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare('INSERT INTO marketing_subscribers (id, tenant_id, list_id, email, name, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, tenantId, listId, email, name || null, metadata ? JSON.stringify(metadata) : null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.delete('/marketing/subscribers/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM marketing_subscribers WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!existing) return res.status(404).json({ error: 'Subscriber not found' });
+        db.prepare('DELETE FROM marketing_subscribers WHERE id = ? AND tenant_id = ?').run(req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // ---- Marketing: SEO Keywords ----
+    router.get('/marketing/seo-keywords', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const rows = db.prepare('SELECT * FROM marketing_seo_keywords WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+        res.json(rows);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/marketing/seo-keywords', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { keyword, volume, difficulty, currentRank, targetUrl } = req.body;
+        const id = 'seo_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare('INSERT INTO marketing_seo_keywords (id, tenant_id, keyword, volume, difficulty, current_rank, target_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, tenantId, keyword, volume || null, difficulty || null, currentRank || null, targetUrl || null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/marketing/seo-keywords/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM marketing_seo_keywords WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!existing) return res.status(404).json({ error: 'SEO keyword not found' });
+        const { keyword, volume, difficulty, currentRank, targetUrl } = req.body;
+        const now = Date.now();
+        db.prepare('UPDATE marketing_seo_keywords SET keyword = COALESCE(?, keyword), volume = COALESCE(?, volume), difficulty = COALESCE(?, difficulty), current_rank = COALESCE(?, current_rank), target_url = COALESCE(?, target_url), updated_at = ? WHERE id = ? AND tenant_id = ?').run(keyword || null, volume ?? null, difficulty ?? null, currentRank ?? null, targetUrl || null, now, req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.delete('/marketing/seo-keywords/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM marketing_seo_keywords WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!existing) return res.status(404).json({ error: 'SEO keyword not found' });
+        db.prepare('DELETE FROM marketing_seo_keywords WHERE id = ? AND tenant_id = ?').run(req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // ---- Marketing: Social Accounts ----
+    router.get('/marketing/social-accounts', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const rows = db.prepare('SELECT * FROM marketing_social_accounts WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+        res.json(rows);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/marketing/social-accounts', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { platform, accountName, accountId, accessToken, refreshToken } = req.body;
+        const id = 'soc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare('INSERT INTO marketing_social_accounts (id, tenant_id, platform, account_name, account_id, access_token, refresh_token, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, tenantId, platform, accountName, accountId || null, accessToken || null, refreshToken || null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.delete('/marketing/social-accounts/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM marketing_social_accounts WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!existing) return res.status(404).json({ error: 'Social account not found' });
+        db.prepare('DELETE FROM marketing_social_accounts WHERE id = ? AND tenant_id = ?').run(req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.get('/marketing/social-accounts/:id/posts', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const rows = db.prepare('SELECT * FROM marketing_social_posts WHERE account_id = ? AND tenant_id = ? ORDER BY scheduled_at DESC').all(req.params.id, tenantId);
+        res.json(rows);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/marketing/social-posts', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { accountId, content, mediaUrl, scheduledAt } = req.body;
+        const id = 'sop_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare('INSERT INTO marketing_social_posts (id, tenant_id, account_id, content, media_url, scheduled_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, tenantId, accountId, content, mediaUrl || null, scheduledAt || null, 'draft', now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // ---- Marketing: Discounts / Coupons ----
+    router.get('/marketing/discounts', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const rows = db.prepare('SELECT * FROM marketing_discounts WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+        res.json(rows);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/marketing/discounts', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { code, type, value, minPurchase, maxUses, startsAt, expiresAt, productIds } = req.body;
+        const id = 'dsc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare('INSERT INTO marketing_discounts (id, tenant_id, code, type, value, min_purchase, max_uses, starts_at, expires_at, product_ids, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, tenantId, code, type, value, minPurchase || null, maxUses || null, startsAt || null, expiresAt || null, productIds ? JSON.stringify(productIds) : null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/marketing/discounts/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM marketing_discounts WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!existing) return res.status(404).json({ error: 'Discount not found' });
+        const { code, type, value, minPurchase, maxUses, startsAt, expiresAt, productIds, isActive } = req.body;
+        const now = Date.now();
+        db.prepare('UPDATE marketing_discounts SET code = COALESCE(?, code), type = COALESCE(?, type), value = COALESCE(?, value), min_purchase = COALESCE(?, min_purchase), max_uses = COALESCE(?, max_uses), starts_at = COALESCE(?, starts_at), expires_at = COALESCE(?, expires_at), product_ids = COALESCE(?, product_ids), is_active = COALESCE(?, is_active), updated_at = ? WHERE id = ? AND tenant_id = ?').run(code || null, type || null, value ?? null, minPurchase ?? null, maxUses ?? null, startsAt || null, expiresAt || null, productIds ? JSON.stringify(productIds) : null, isActive ?? null, now, req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.delete('/marketing/discounts/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM marketing_discounts WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!existing) return res.status(404).json({ error: 'Discount not found' });
+        db.prepare('DELETE FROM marketing_discounts WHERE id = ? AND tenant_id = ?').run(req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/marketing/discounts/validate', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { code, amount } = req.body;
+        if (!code) return res.status(400).json({ error: 'code required' });
+        const now = Date.now();
+        const discount = db.prepare('SELECT * FROM marketing_discounts WHERE code = ? AND tenant_id = ? AND is_active = 1 AND (starts_at IS NULL OR starts_at <= ?) AND (expires_at IS NULL OR expires_at >= ?)').get(code, tenantId, now, now) as any;
+        if (!discount) return res.status(400).json({ valid: false, error: 'Invalid or expired discount code' });
+        if (discount.max_uses) {
+          const used = db.prepare('SELECT COUNT(*) as count FROM marketing_discount_redemptions WHERE discount_id = ? AND tenant_id = ?').get(discount.id, tenantId) as any;
+          if (used.count >= discount.max_uses) return res.status(400).json({ valid: false, error: 'Discount code has reached max uses' });
+        }
+        if (discount.min_purchase && amount && amount < discount.min_purchase) return res.status(400).json({ valid: false, error: 'Minimum purchase amount not met' });
+        let discountAmount = 0;
+        if (discount.type === 'percentage') discountAmount = (amount || 0) * (discount.value / 100);
+        else if (discount.type === 'fixed') discountAmount = discount.value;
+        res.json({ valid: true, discount, discountAmount });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
     // ---- AI Provider Selection ----
     router.get('/ai/providers', (req: Request, res: Response) => {
       try {

@@ -1047,6 +1047,186 @@ const TOOLS = [
     customerId: z.string().optional(),
   })),
 
+
+  // ---- HR & PAYROLL ----
+
+  tool("list_employees", "List all employees", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    department: z.string().optional().describe("Filter by department"),
+    status: z.string().optional().describe("Filter by status"),
+    search: z.string().optional().describe("Search by name or code"),
+    limit: z.number().optional().describe("Max results"),
+    offset: z.number().optional().describe("Offset"),
+  })),
+
+  tool("get_employee", "Get employee details", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().describe("Employee ID"),
+  })),
+
+  tool("create_employee", "Create a new employee", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeCode: z.string().describe("Employee code"),
+    firstName: z.string().describe("First name"),
+    lastName: z.string().describe("Last name"),
+    email: z.string().optional().describe("Email"),
+    phone: z.string().optional().describe("Phone"),
+    position: z.string().optional().describe("Job position"),
+    department: z.string().optional().describe("Department"),
+    managerId: z.string().optional().describe("Manager employee ID"),
+    hireDate: z.number().optional().describe("Hire date (epoch ms)"),
+    employmentType: z.enum(["full_time","part_time","contract","intern","temporary"]).optional().describe("Employment type"),
+    baseSalary: z.number().optional().describe("Base salary"),
+    currency: z.string().optional().describe("Currency"),
+    bankName: z.string().optional().describe("Bank name"),
+    bankAccount: z.string().optional().describe("Bank account"),
+    taxId: z.string().optional().describe("Tax ID"),
+    address: z.string().optional().describe("Address"),
+    emergencyContact: z.string().optional().describe("Emergency contact name"),
+    emergencyPhone: z.string().optional().describe("Emergency contact phone"),
+    notes: z.string().optional().describe("Notes"),
+  })),
+
+  tool("update_employee", "Update an employee", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().describe("Employee ID"),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    email: z.string().optional(),
+    phone: z.string().optional(),
+    position: z.string().optional(),
+    department: z.string().optional(),
+    managerId: z.string().optional(),
+    status: z.enum(["active","inactive","terminated","on_leave"]).optional(),
+    baseSalary: z.number().optional(),
+    currency: z.string().optional(),
+    bankName: z.string().optional(),
+    bankAccount: z.string().optional(),
+    taxId: z.string().optional(),
+    address: z.string().optional(),
+    emergencyContact: z.string().optional(),
+    emergencyPhone: z.string().optional(),
+    notes: z.string().optional(),
+  })),
+
+  tool("clock_in", "Record employee clock-in", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().describe("Employee ID"),
+    timestamp: z.number().optional().describe("Clock-in timestamp (epoch ms, defaults to now)"),
+  })),
+
+  tool("clock_out", "Record employee clock-out", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().describe("Employee ID"),
+    timestamp: z.number().optional().describe("Clock-out timestamp (epoch ms, defaults to now)"),
+  })),
+
+  tool("get_time_today", "Get today\"s time tracking for an employee", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().describe("Employee ID"),
+  })),
+
+  tool("list_time_records", "List time tracking records", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().optional().describe("Filter by employee"),
+    dateFrom: z.string().optional().describe("Start date (YYYY-MM-DD)"),
+    dateTo: z.string().optional().describe("End date (YYYY-MM-DD)"),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool("request_leave", "Submit a leave request", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().describe("Employee ID"),
+    leaveType: z.enum(["annual","sick","personal","maternity","paternity","bereavement","unpaid","other"]).describe("Leave type"),
+    startDate: z.string().describe("Start date (YYYY-MM-DD)"),
+    endDate: z.string().describe("End date (YYYY-MM-DD)"),
+    totalDays: z.number().describe("Total days"),
+    reason: z.string().optional().describe("Reason"),
+  })),
+
+  tool("approve_leave", "Approve or reject a leave request", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    leaveId: z.string().describe("Leave request ID"),
+    status: z.enum(["approved","rejected"]).describe("New status"),
+    approvedBy: z.string().describe("Approver employee ID"),
+    notes: z.string().optional().describe("Notes"),
+  })),
+
+  tool("list_leave_requests", "List leave requests", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().optional().describe("Filter by employee"),
+    status: z.string().optional().describe("Filter by status"),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool("get_leave_balance", "Get employee leave balance for a year", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().describe("Employee ID"),
+    year: z.number().optional().describe("Year (defaults to current)"),
+  })),
+
+  tool("create_payroll_period", "Create a payroll period", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    periodName: z.string().describe("Period name (e.g. May 2026)"),
+    periodType: z.enum(["weekly","biweekly","monthly"]).describe("Period type"),
+    startDate: z.string().describe("Start date (YYYY-MM-DD)"),
+    endDate: z.string().describe("End date (YYYY-MM-DD)"),
+    paymentDate: z.string().optional().describe("Payment date (YYYY-MM-DD)"),
+  })),
+
+  tool("process_payroll", "Calculate payroll for all employees in a period", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    periodId: z.string().describe("Payroll period ID"),
+  })),
+
+  tool("list_payroll_periods", "List payroll periods", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool("list_payroll_items", "List payroll items for a period", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    periodId: z.string().describe("Payroll period ID"),
+    employeeId: z.string().optional().describe("Filter by employee"),
+  })),
+
+  tool("mark_payroll_paid", "Mark payroll items as paid", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    periodId: z.string().describe("Payroll period ID"),
+    paidAt: z.number().optional().describe("Payment timestamp (epoch ms)"),
+  })),
+
+  tool("create_performance_review", "Create a performance review", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().describe("Employee ID"),
+    reviewerId: z.string().describe("Reviewer employee ID"),
+    reviewPeriod: z.string().describe("Review period (e.g. Q1 2026)"),
+    rating: z.number().min(1).max(5).optional().describe("Rating 1-5"),
+    goalsAchieved: z.string().optional().describe("Goals achieved"),
+    strengths: z.string().optional().describe("Strengths"),
+    areasForImprovement: z.string().optional().describe("Areas for improvement"),
+    overallFeedback: z.string().optional().describe("Overall feedback"),
+  })),
+
+  tool("list_performance_reviews", "List performance reviews", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    employeeId: z.string().optional().describe("Filter by employee"),
+    reviewerId: z.string().optional().describe("Filter by reviewer"),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool("update_performance_review", "Update a performance review status", z.object({
+    tenantId: z.string().describe("Tenant ID"),
+    reviewId: z.string().describe("Review ID"),
+    status: z.enum(["draft","submitted","acknowledged","completed"]).describe("New status"),
+    rating: z.number().min(1).max(5).optional(),
+    overallFeedback: z.string().optional(),
+  })),
+
 ];
 
 export function createMCPServer() {
@@ -2071,6 +2251,238 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
     }
 
     // ---- MARKETING MODULE (Phase 2) ----
+
+    // ---- HR & PAYROLL MODULE (Phase 3) ----
+
+    case 'list_employees': {
+      const { department, status, search, limit, offset } = args;
+      let sql = 'SELECT * FROM employees WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (department) { sql += ' AND department = ?'; params.push(department); }
+      if (status) { sql += ' AND status = ?'; params.push(status); }
+      if (search) { sql += ' AND (first_name LIKE ? OR last_name LIKE ? OR employee_code LIKE ?)'; const s = '%' + search + '%'; params.push(s, s, s); }
+      sql += ' ORDER BY created_at DESC';
+      if (limit) sql += ' LIMIT ?'; params.push(limit || 50);
+      if (offset) sql += ' OFFSET ?'; params.push(offset || 0);
+      const employees = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(employees, null, 2) }] };
+    }
+
+    case 'get_employee': {
+      const { employeeId } = args;
+      const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND tenant_id = ?').get(employeeId, tenantId);
+      if (!employee) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Employee not found' }) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(employee, null, 2) }] };
+    }
+
+    case 'create_employee': {
+      const { employeeCode, firstName, lastName, email, phone, position, department, managerId, hireDate, employmentType, baseSalary, currency, bankName, bankAccount, taxId, address, emergencyContact, emergencyPhone, notes } = args;
+      const id = 'emp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO employees (id, tenant_id, employee_code, first_name, last_name, email, phone, position, department, manager_id, hire_date, employment_type, status, base_salary, currency, bank_name, bank_account, tax_id, address, emergency_contact, emergency_phone, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, employeeCode, firstName, lastName, email || null, phone || null, position || null, department || null, managerId || null, hireDate || null, employmentType || 'full_time', baseSalary || 0, currency || 'THB', bankName || null, bankAccount || null, taxId || null, address || null, emergencyContact || null, emergencyPhone || null, notes || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, success: true }, null, 2) }] };
+    }
+
+    case 'update_employee': {
+      const { employeeId, firstName, lastName, email, phone, position, department, managerId, status, baseSalary, currency, bankName, bankAccount, taxId, address, emergencyContact, emergencyPhone, notes } = args;
+      const existing = db.prepare('SELECT * FROM employees WHERE id = ? AND tenant_id = ?').get(employeeId, tenantId);
+      if (!existing) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Employee not found' }) }] };
+      const now = Date.now();
+      db.prepare(`UPDATE employees SET first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name), email = COALESCE(?, email), phone = COALESCE(?, phone), position = COALESCE(?, position), department = COALESCE(?, department), manager_id = COALESCE(?, manager_id), status = COALESCE(?, status), base_salary = COALESCE(?, base_salary), currency = COALESCE(?, currency), bank_name = COALESCE(?, bank_name), bank_account = COALESCE(?, bank_account), tax_id = COALESCE(?, tax_id), address = COALESCE(?, address), emergency_contact = COALESCE(?, emergency_contact), emergency_phone = COALESCE(?, emergency_phone), notes = COALESCE(?, notes), updated_at = ? WHERE id = ? AND tenant_id = ?`).run(firstName || null, lastName || null, email || null, phone || null, position || null, department || null, managerId || null, status || null, baseSalary ?? null, currency || null, bankName || null, bankAccount || null, taxId || null, address || null, emergencyContact || null, emergencyPhone || null, notes || null, now, employeeId, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify({ id: employeeId, success: true }, null, 2) }] };
+    }
+
+    case 'clock_in': {
+      const { employeeId, timestamp } = args;
+      const now = timestamp || Date.now();
+      const today = new Date(now).toISOString().split('T')[0];
+      const existing = db.prepare('SELECT * FROM time_tracking WHERE employee_id = ? AND date = ? AND tenant_id = ?').get(employeeId, today, tenantId);
+      if (existing) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Already clocked in today' }) }] };
+      const id = 'tim_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      db.prepare(`INSERT INTO time_tracking (id, tenant_id, employee_id, date, clock_in, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`).run(id, tenantId, employeeId, today, now, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, clockIn: now, success: true }, null, 2) }] };
+    }
+
+    case 'clock_out': {
+      const { employeeId, timestamp } = args;
+      const now = timestamp || Date.now();
+      const today = new Date(now).toISOString().split('T')[0];
+      const record = db.prepare('SELECT * FROM time_tracking WHERE employee_id = ? AND date = ? AND tenant_id = ?').get(employeeId, today, tenantId);
+      if (!record) return { content: [{ type: 'text', text: JSON.stringify({ error: 'No clock-in record found for today' }) }] };
+      if (record.clock_out) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Already clocked out today' }) }] };
+      const totalHours = (now - record.clock_in) / (1000 * 60 * 60);
+      const overtimeHours = Math.max(0, totalHours - 8);
+      db.prepare(`UPDATE time_tracking SET clock_out = ?, total_hours = ?, overtime_hours = ?, updated_at = ? WHERE id = ?`).run(now, Math.round(totalHours * 100) / 100, Math.round(overtimeHours * 100) / 100, now, record.id);
+      return { content: [{ type: 'text', text: JSON.stringify({ id: record.id, clockOut: now, totalHours: Math.round(totalHours * 100) / 100, overtimeHours: Math.round(overtimeHours * 100) / 100, success: true }, null, 2) }] };
+    }
+
+    case 'get_time_today': {
+      const { employeeId } = args;
+      const today = new Date().toISOString().split('T')[0];
+      const record = db.prepare('SELECT * FROM time_tracking WHERE employee_id = ? AND date = ? AND tenant_id = ?').get(employeeId, today, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(record || { message: 'No record for today' }, null, 2) }] };
+    }
+
+    case 'list_time_records': {
+      const { employeeId, dateFrom, dateTo, limit, offset } = args;
+      let sql = 'SELECT * FROM time_tracking WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (employeeId) { sql += ' AND employee_id = ?'; params.push(employeeId); }
+      if (dateFrom) { sql += ' AND date >= ?'; params.push(dateFrom); }
+      if (dateTo) { sql += ' AND date <= ?'; params.push(dateTo); }
+      sql += ' ORDER BY date DESC';
+      if (limit) sql += ' LIMIT ?'; params.push(limit || 50);
+      if (offset) sql += ' OFFSET ?'; params.push(offset || 0);
+      const records = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(records, null, 2) }] };
+    }
+
+    case 'request_leave': {
+      const { employeeId, leaveType, startDate, endDate, totalDays, reason } = args;
+      const id = 'lev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO leave_requests (id, tenant_id, employee_id, leave_type, start_date, end_date, total_days, reason, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`).run(id, tenantId, employeeId, leaveType, startDate, endDate, totalDays, reason || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, status: 'pending', success: true }, null, 2) }] };
+    }
+
+    case 'approve_leave': {
+      const { leaveId, status, approvedBy, notes } = args;
+      const existing = db.prepare('SELECT * FROM leave_requests WHERE id = ? AND tenant_id = ?').get(leaveId, tenantId);
+      if (!existing) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Leave request not found' }) }] };
+      const now = Date.now();
+      db.prepare(`UPDATE leave_requests SET status = ?, approved_by = ?, approved_at = ?, notes = COALESCE(?, notes), updated_at = ? WHERE id = ? AND tenant_id = ?`).run(status, approvedBy, now, notes || null, now, leaveId, tenantId);
+      if (status === 'approved') {
+        const year = new Date(existing.start_date).getFullYear();
+        const balance = db.prepare('SELECT * FROM leave_balances WHERE tenant_id = ? AND employee_id = ? AND year = ? AND leave_type = ?').get(tenantId, existing.employee_id, year, existing.leave_type);
+        if (balance) {
+          db.prepare('UPDATE leave_balances SET used_days = used_days + ?, updated_at = ? WHERE id = ?').run(existing.total_days, now, balance.id);
+        }
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({ id: leaveId, status, success: true }, null, 2) }] };
+    }
+
+    case 'list_leave_requests': {
+      const { employeeId, status, limit, offset } = args;
+      let sql = 'SELECT * FROM leave_requests WHERE tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (employeeId) { sql += ' AND employee_id = ?'; params.push(employeeId); }
+      if (status) { sql += ' AND status = ?'; params.push(status); }
+      sql += ' ORDER BY created_at DESC';
+      if (limit) sql += ' LIMIT ?'; params.push(limit || 50);
+      if (offset) sql += ' OFFSET ?'; params.push(offset || 0);
+      const requests = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(requests, null, 2) }] };
+    }
+
+    case 'get_leave_balance': {
+      const { employeeId, year } = args;
+      const y = year || new Date().getFullYear();
+      const balances = db.prepare('SELECT * FROM leave_balances WHERE tenant_id = ? AND employee_id = ? AND year = ?').all(tenantId, employeeId, y);
+      if (balances.length === 0) {
+        const defaultBalances = [
+          { leave_type: 'annual', total_days: 12 },
+          { leave_type: 'sick', total_days: 30 },
+          { leave_type: 'personal', total_days: 3 },
+        ];
+        const now = Date.now();
+        for (const b of defaultBalances) {
+          const id = 'leb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+          db.prepare(`INSERT INTO leave_balances (id, tenant_id, employee_id, year, leave_type, total_days, used_days, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`).run(id, tenantId, employeeId, y, b.leave_type, b.total_days, now, now);
+        }
+        const result = db.prepare('SELECT * FROM leave_balances WHERE tenant_id = ? AND employee_id = ? AND year = ?').all(tenantId, employeeId, y);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(balances, null, 2) }] };
+    }
+
+    case 'create_payroll_period': {
+      const { periodName, periodType, startDate, endDate, paymentDate } = args;
+      const id = 'prp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO payroll_periods (id, tenant_id, period_name, period_type, start_date, end_date, payment_date, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`).run(id, tenantId, periodName, periodType, startDate, endDate, paymentDate || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, status: 'draft', success: true }, null, 2) }] };
+    }
+
+    case 'process_payroll': {
+      const { periodId } = args;
+      const period = db.prepare('SELECT * FROM payroll_periods WHERE id = ? AND tenant_id = ?').get(periodId, tenantId);
+      if (!period) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Payroll period not found' }) }] };
+      const employees = db.prepare("SELECT * FROM employees WHERE tenant_id = ? AND status = 'active'").all(tenantId);
+      const now = Date.now();
+      let processed = 0;
+      for (const emp of employees) {
+        const existing = db.prepare('SELECT * FROM payroll_items WHERE period_id = ? AND employee_id = ?').get(periodId, emp.id);
+        if (existing) continue;
+        const itemId = 'pri_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const monthlySalary = emp.base_salary || 0;
+        const socialSecurity = Math.min(monthlySalary * 0.05, 750);
+        const taxDeduction = monthlySalary > 50000 ? monthlySalary * 0.1 : 0;
+        const netPay = monthlySalary - socialSecurity - taxDeduction;
+        db.prepare(`INSERT INTO payroll_items (id, tenant_id, period_id, employee_id, base_salary, overtime_pay, bonus, commission, allowance, deductions, tax_deduction, social_security, net_pay, payment_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?, 'pending', ?, ?)`).run(itemId, tenantId, periodId, emp.id, monthlySalary, taxDeduction, socialSecurity, Math.round(netPay * 100) / 100, now, now);
+        processed++;
+      }
+      db.prepare("UPDATE payroll_periods SET status = 'processing', updated_at = ? WHERE id = ?").run(now, periodId);
+      return { content: [{ type: 'text', text: JSON.stringify({ periodId, employeesProcessed: processed, success: true }, null, 2) }] };
+    }
+
+    case 'list_payroll_periods': {
+      const { limit, offset } = args;
+      let sql = 'SELECT * FROM payroll_periods WHERE tenant_id = ? ORDER BY created_at DESC';
+      const params: any[] = [tenantId];
+      if (limit) sql += ' LIMIT ?'; params.push(limit || 50);
+      if (offset) sql += ' OFFSET ?'; params.push(offset || 0);
+      const periods = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(periods, null, 2) }] };
+    }
+
+    case 'list_payroll_items': {
+      const { periodId, employeeId } = args;
+      let sql = 'SELECT pi.*, e.first_name, e.last_name, e.department FROM payroll_items pi JOIN employees e ON pi.employee_id = e.id WHERE pi.tenant_id = ? AND pi.period_id = ?';
+      const params: any[] = [tenantId, periodId];
+      if (employeeId) { sql += ' AND pi.employee_id = ?'; params.push(employeeId); }
+      sql += ' ORDER BY e.department, e.first_name';
+      const items = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(items, null, 2) }] };
+    }
+
+    case 'mark_payroll_paid': {
+      const { periodId, paidAt } = args;
+      const now = paidAt || Date.now();
+      db.prepare("UPDATE payroll_items SET payment_status = 'paid', paid_at = ?, updated_at = ? WHERE period_id = ? AND tenant_id = ?").run(now, now, periodId, tenantId);
+      db.prepare("UPDATE payroll_periods SET status = 'paid', updated_at = ? WHERE id = ?").run(now, periodId);
+      return { content: [{ type: 'text', text: JSON.stringify({ periodId, status: 'paid', paidAt: now, success: true }, null, 2) }] };
+    }
+
+    case 'create_performance_review': {
+      const { employeeId, reviewerId, reviewPeriod, rating, goalsAchieved, strengths, areasForImprovement, overallFeedback } = args;
+      const id = 'prv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const now = Date.now();
+      db.prepare(`INSERT INTO performance_reviews (id, tenant_id, employee_id, reviewer_id, review_period, review_date, rating, goals_achieved, strengths, areas_for_improvement, overall_feedback, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`).run(id, tenantId, employeeId, reviewerId, reviewPeriod, now, rating || null, goalsAchieved || null, strengths || null, areasForImprovement || null, overallFeedback || null, now, now);
+      return { content: [{ type: 'text', text: JSON.stringify({ id, status: 'draft', success: true }, null, 2) }] };
+    }
+
+    case 'list_performance_reviews': {
+      const { employeeId, reviewerId, limit, offset } = args;
+      let sql = 'SELECT pr.*, e.first_name, e.last_name, e.department FROM performance_reviews pr JOIN employees e ON pr.employee_id = e.id WHERE pr.tenant_id = ?';
+      const params: any[] = [tenantId];
+      if (employeeId) { sql += ' AND pr.employee_id = ?'; params.push(employeeId); }
+      if (reviewerId) { sql += ' AND pr.reviewer_id = ?'; params.push(reviewerId); }
+      sql += ' ORDER BY pr.created_at DESC';
+      if (limit) sql += ' LIMIT ?'; params.push(limit || 50);
+      if (offset) sql += ' OFFSET ?'; params.push(offset || 0);
+      const reviews = db.prepare(sql).all(...params);
+      return { content: [{ type: 'text', text: JSON.stringify(reviews, null, 2) }] };
+    }
+
+    case 'update_performance_review': {
+      const { reviewId, status, rating, overallFeedback } = args;
+      const existing = db.prepare('SELECT * FROM performance_reviews WHERE id = ? AND tenant_id = ?').get(reviewId, tenantId);
+      if (!existing) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Review not found' }) }] };
+      const now = Date.now();
+      db.prepare(`UPDATE performance_reviews SET status = ?, rating = COALESCE(?, rating), overall_feedback = COALESCE(?, overall_feedback), updated_at = ? WHERE id = ? AND tenant_id = ?`).run(status, rating ?? null, overallFeedback || null, now, reviewId, tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify({ id: reviewId, status, success: true }, null, 2) }] };
+    }
+
 
     case 'list_campaigns': {
       const { status, type, limit, offset } = args;

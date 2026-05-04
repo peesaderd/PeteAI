@@ -939,22 +939,156 @@ function initializeSchema(db: Database.Database) {
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL REFERENCES tenants(id),
       discount_id TEXT NOT NULL REFERENCES marketing_discounts(id),
-      order_id TEXT REFERENCES orders(id),
+      order_id TEXT NOT NULL REFERENCES orders(id),
       customer_id TEXT REFERENCES customers(id),
+      discount_code TEXT NOT NULL,
+      discount_type TEXT NOT NULL,
+      discount_value REAL NOT NULL,
       discount_amount REAL NOT NULL,
-      created_at INTEGER NOT NULL
+      order_amount REAL NOT NULL,
+      customer_email TEXT,
+      redeemed_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_mkt_campaigns_tenant ON marketing_campaigns(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_mkt_campaign_items_campaign ON marketing_campaign_items(campaign_id);
-    CREATE INDEX IF NOT EXISTS idx_mkt_email_templates_tenant ON marketing_email_templates(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_mkt_email_lists_tenant ON marketing_email_lists(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_mkt_email_subscribers_list ON marketing_email_subscribers(list_id);
-    CREATE INDEX IF NOT EXISTS idx_mkt_email_logs_tenant ON marketing_email_logs(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_mkt_seo_keywords_tenant ON marketing_seo_keywords(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_mkt_social_accounts_tenant ON marketing_social_accounts(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_mkt_social_posts_account ON marketing_social_posts(account_id);
-    CREATE INDEX IF NOT EXISTS idx_mkt_discounts_tenant ON marketing_discounts(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_mkt_discount_redemptions_discount ON marketing_discount_redemptions(discount_id);
+    CREATE TABLE IF NOT EXISTS employees (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      employee_code TEXT NOT NULL,
+      first_name TEXT NOT NULL,
+      last_name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      position TEXT,
+      department TEXT,
+      manager_id TEXT REFERENCES employees(id),
+      hire_date INTEGER,
+      employment_type TEXT DEFAULT 'full_time' CHECK(employment_type IN ('full_time','part_time','contract','intern','temporary')),
+      status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive','terminated','on_leave')),
+      base_salary REAL DEFAULT 0,
+      currency TEXT DEFAULT 'THB',
+      bank_name TEXT,
+      bank_account TEXT,
+      tax_id TEXT,
+      address TEXT,
+      emergency_contact TEXT,
+      emergency_phone TEXT,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS time_tracking (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      employee_id TEXT NOT NULL REFERENCES employees(id),
+      date TEXT NOT NULL,
+      clock_in INTEGER,
+      clock_out INTEGER,
+      break_start INTEGER,
+      break_end INTEGER,
+      total_hours REAL DEFAULT 0,
+      overtime_hours REAL DEFAULT 0,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+      approved_by TEXT REFERENCES employees(id),
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS leave_requests (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      employee_id TEXT NOT NULL REFERENCES employees(id),
+      leave_type TEXT NOT NULL CHECK(leave_type IN ('annual','sick','personal','maternity','paternity','bereavement','unpaid','other')),
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      total_days REAL NOT NULL,
+      reason TEXT,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','cancelled')),
+      approved_by TEXT REFERENCES employees(id),
+      approved_at INTEGER,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS leave_balances (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      employee_id TEXT NOT NULL REFERENCES employees(id),
+      year INTEGER NOT NULL,
+      leave_type TEXT NOT NULL,
+      total_days REAL NOT NULL DEFAULT 0,
+      used_days REAL NOT NULL DEFAULT 0,
+      remaining_days REAL GENERATED ALWAYS AS (total_days - used_days) STORED,
+      UNIQUE(tenant_id, employee_id, year, leave_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS payroll_periods (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      period_name TEXT NOT NULL,
+      period_type TEXT NOT NULL CHECK(period_type IN ('weekly','biweekly','monthly')),
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      payment_date TEXT,
+      status TEXT DEFAULT 'draft' CHECK(status IN ('draft','processing','paid','cancelled')),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS payroll_items (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      period_id TEXT NOT NULL REFERENCES payroll_periods(id),
+      employee_id TEXT NOT NULL REFERENCES employees(id),
+      base_salary REAL NOT NULL DEFAULT 0,
+      overtime_pay REAL DEFAULT 0,
+      bonus REAL DEFAULT 0,
+      commission REAL DEFAULT 0,
+      allowance REAL DEFAULT 0,
+      deductions REAL DEFAULT 0,
+      tax_deduction REAL DEFAULT 0,
+      social_security REAL DEFAULT 0,
+      net_pay REAL NOT NULL DEFAULT 0,
+      payment_status TEXT DEFAULT 'pending' CHECK(payment_status IN ('pending','paid','cancelled')),
+      paid_at INTEGER,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS performance_reviews (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      employee_id TEXT NOT NULL REFERENCES employees(id),
+      reviewer_id TEXT NOT NULL REFERENCES employees(id),
+      review_period TEXT NOT NULL,
+      review_date INTEGER NOT NULL,
+      rating INTEGER CHECK(rating >= 1 AND rating <= 5),
+      goals_achieved TEXT,
+      strengths TEXT,
+      areas_for_improvement TEXT,
+      overall_feedback TEXT,
+      status TEXT DEFAULT 'draft' CHECK(status IN ('draft','submitted','acknowledged','completed')),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_employees_tenant ON employees(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_employees_department ON employees(department);
+    CREATE INDEX IF NOT EXISTS idx_employees_manager ON employees(manager_id);
+    CREATE INDEX IF NOT EXISTS idx_time_tracking_employee ON time_tracking(employee_id);
+    CREATE INDEX IF NOT EXISTS idx_time_tracking_date ON time_tracking(date);
+    CREATE INDEX IF NOT EXISTS idx_leave_requests_employee ON leave_requests(employee_id);
+    CREATE INDEX IF NOT EXISTS idx_leave_requests_status ON leave_requests(status);
+    CREATE INDEX IF NOT EXISTS idx_leave_balances_employee ON leave_balances(employee_id);
+    CREATE INDEX IF NOT EXISTS idx_payroll_periods_tenant ON payroll_periods(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_payroll_items_period ON payroll_items(period_id);
+    CREATE INDEX IF NOT EXISTS idx_payroll_items_employee ON payroll_items(employee_id);
+    CREATE INDEX IF NOT EXISTS idx_performance_reviews_employee ON performance_reviews(employee_id);
+    CREATE INDEX IF NOT EXISTS idx_performance_reviews_reviewer ON performance_reviews(reviewer_id);
   `);
 }
