@@ -985,6 +985,320 @@ export function createRouter() {
       } catch (err: any) { res.status(400).json({ error: err.message }); }
     });
 
+    // ---- HR & Payroll REST API ----
+
+    // Employees
+    router.get('/hr/employees', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { department, status, search, limit = '50', offset = '0' } = req.query;
+        let sql = 'SELECT * FROM employees WHERE tenant_id = ?';
+        const params: any[] = [tenantId];
+        if (department) { sql += ' AND department = ?'; params.push(department); }
+        if (status) { sql += ' AND status = ?'; params.push(status); }
+        if (search) { sql += ' AND (first_name LIKE ? OR last_name LIKE ? OR employee_code LIKE ?)'; const s = '%' + search + '%'; params.push(s, s, s); }
+        sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), parseInt(offset as string));
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.get('/hr/employees/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!employee) return res.status(404).json({ error: 'Employee not found' });
+        res.json(employee);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/hr/employees', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { employeeCode, firstName, lastName, email, phone, position, department, managerId, hireDate, employmentType, baseSalary, currency, bankName, bankAccount, taxId, address, emergencyContact, emergencyPhone, notes } = req.body;
+        if (!employeeCode || !firstName || !lastName) return res.status(400).json({ error: 'employeeCode, firstName, lastName required' });
+        const db = getDatabase();
+        const id = 'emp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare(`INSERT INTO employees (id, tenant_id, employee_code, first_name, last_name, email, phone, position, department, manager_id, hire_date, employment_type, status, base_salary, currency, bank_name, bank_account, tax_id, address, emergency_contact, emergency_phone, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, tenantId, employeeCode, firstName, lastName, email || null, phone || null, position || null, department || null, managerId || null, hireDate || null, employmentType || 'full_time', baseSalary || 0, currency || 'THB', bankName || null, bankAccount || null, taxId || null, address || null, emergencyContact || null, emergencyPhone || null, notes || null, now, now);
+        res.json({ id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/hr/employees/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM employees WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!existing) return res.status(404).json({ error: 'Employee not found' });
+        const { firstName, lastName, email, phone, position, department, managerId, status, baseSalary, currency, bankName, bankAccount, taxId, address, emergencyContact, emergencyPhone, notes } = req.body;
+        const now = Date.now();
+        db.prepare(`UPDATE employees SET first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name), email = COALESCE(?, email), phone = COALESCE(?, phone), position = COALESCE(?, position), department = COALESCE(?, department), manager_id = COALESCE(?, manager_id), status = COALESCE(?, status), base_salary = COALESCE(?, base_salary), currency = COALESCE(?, currency), bank_name = COALESCE(?, bank_name), bank_account = COALESCE(?, bank_account), tax_id = COALESCE(?, tax_id), address = COALESCE(?, address), emergency_contact = COALESCE(?, emergency_contact), emergency_phone = COALESCE(?, emergency_phone), notes = COALESCE(?, notes), updated_at = ? WHERE id = ? AND tenant_id = ?`).run(firstName || null, lastName || null, email || null, phone || null, position || null, department || null, managerId || null, status || null, baseSalary ?? null, currency || null, bankName || null, bankAccount || null, taxId || null, address || null, emergencyContact || null, emergencyPhone || null, notes || null, now, req.params.id, tenantId);
+        res.json({ id: req.params.id, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Time Tracking
+    router.get('/hr/time-tracking', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { employeeId, dateFrom, dateTo, limit = '50', offset = '0' } = req.query;
+        let sql = 'SELECT * FROM time_tracking WHERE tenant_id = ?';
+        const params: any[] = [tenantId];
+        if (employeeId) { sql += ' AND employee_id = ?'; params.push(employeeId); }
+        if (dateFrom) { sql += ' AND date >= ?'; params.push(dateFrom); }
+        if (dateTo) { sql += ' AND date <= ?'; params.push(dateTo); }
+        sql += ' ORDER BY date DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), parseInt(offset as string));
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/hr/time-tracking/clock-in', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { employeeId, timestamp } = req.body;
+        if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
+        const db = getDatabase();
+        const now = timestamp || Date.now();
+        const today = new Date(now).toISOString().split('T')[0];
+        const existing = db.prepare('SELECT * FROM time_tracking WHERE employee_id = ? AND date = ? AND tenant_id = ?').get(employeeId, today, tenantId) as any;
+        if (existing) return res.status(400).json({ error: 'Already clocked in today' });
+        const id = 'tim_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        db.prepare(`INSERT INTO time_tracking (id, tenant_id, employee_id, date, clock_in, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`).run(id, tenantId, employeeId, today, now, now, now);
+        res.json({ id, clockIn: now, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/hr/time-tracking/clock-out', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { employeeId, timestamp } = req.body;
+        if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
+        const db = getDatabase();
+        const now = timestamp || Date.now();
+        const today = new Date(now).toISOString().split('T')[0];
+        const record = db.prepare('SELECT * FROM time_tracking WHERE employee_id = ? AND date = ? AND tenant_id = ?').get(employeeId, today, tenantId) as any;
+        if (!record) return res.status(400).json({ error: 'No clock-in record found for today' });
+        if (record.clock_out) return res.status(400).json({ error: 'Already clocked out today' });
+        const totalHours = (now - record.clock_in) / (1000 * 60 * 60);
+        const overtimeHours = Math.max(0, totalHours - 8);
+        db.prepare(`UPDATE time_tracking SET clock_out = ?, total_hours = ?, overtime_hours = ?, updated_at = ? WHERE id = ?`).run(now, Math.round(totalHours * 100) / 100, Math.round(overtimeHours * 100) / 100, now, record.id);
+        res.json({ id: record.id, clockOut: now, totalHours: Math.round(totalHours * 100) / 100, overtimeHours: Math.round(overtimeHours * 100) / 100, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Leave Management
+    router.get('/hr/leaves', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { employeeId, status, limit = '50', offset = '0' } = req.query;
+        let sql = 'SELECT * FROM leave_requests WHERE tenant_id = ?';
+        const params: any[] = [tenantId];
+        if (employeeId) { sql += ' AND employee_id = ?'; params.push(employeeId); }
+        if (status) { sql += ' AND status = ?'; params.push(status); }
+        sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), parseInt(offset as string));
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/hr/leaves', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { employeeId, leaveType, startDate, endDate, totalDays, reason } = req.body;
+        if (!employeeId || !leaveType || !startDate || !endDate || !totalDays) return res.status(400).json({ error: 'employeeId, leaveType, startDate, endDate, totalDays required' });
+        const db = getDatabase();
+        const id = 'lev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare(`INSERT INTO leave_requests (id, tenant_id, employee_id, leave_type, start_date, end_date, total_days, reason, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`).run(id, tenantId, employeeId, leaveType, startDate, endDate, totalDays, reason || null, now, now);
+        res.json({ id, status: 'pending', success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/hr/leaves/:id/approve', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM leave_requests WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!existing) return res.status(404).json({ error: 'Leave request not found' });
+        const { status, approvedBy, notes } = req.body;
+        if (!status || !approvedBy) return res.status(400).json({ error: 'status, approvedBy required' });
+        const now = Date.now();
+        db.prepare(`UPDATE leave_requests SET status = ?, approved_by = ?, approved_at = ?, notes = COALESCE(?, notes), updated_at = ? WHERE id = ? AND tenant_id = ?`).run(status, approvedBy, now, notes || null, now, req.params.id, tenantId);
+        if (status === 'approved') {
+          const year = new Date(existing.start_date).getFullYear();
+          const balance = db.prepare('SELECT * FROM leave_balances WHERE tenant_id = ? AND employee_id = ? AND year = ? AND leave_type = ?').get(tenantId, existing.employee_id, year, existing.leave_type) as any;
+          if (balance) {
+            db.prepare('UPDATE leave_balances SET used_days = used_days + ?, updated_at = ? WHERE id = ?').run(existing.total_days, now, balance.id);
+          }
+        }
+        res.json({ id: req.params.id, status, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.get('/hr/leaves/balance/:employeeId', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const year = parseInt(req.query.year as string) || new Date().getFullYear();
+        const balances = db.prepare('SELECT * FROM leave_balances WHERE tenant_id = ? AND employee_id = ? AND year = ?').all(tenantId, req.params.employeeId, year);
+        if (balances.length === 0) {
+          const defaultBalances = [
+            { leave_type: 'annual', total_days: 12 },
+            { leave_type: 'sick', total_days: 30 },
+            { leave_type: 'personal', total_days: 3 },
+          ];
+          const now = Date.now();
+          for (const b of defaultBalances) {
+            const id = 'leb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+            db.prepare(`INSERT INTO leave_balances (id, tenant_id, employee_id, year, leave_type, total_days, used_days, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`).run(id, tenantId, req.params.employeeId, year, b.leave_type, b.total_days, now, now);
+          }
+          const result = db.prepare('SELECT * FROM leave_balances WHERE tenant_id = ? AND employee_id = ? AND year = ?').all(tenantId, req.params.employeeId, year);
+          return res.json(result);
+        }
+        res.json(balances);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Payroll
+    router.get('/hr/payroll-periods', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { limit = '50', offset = '0' } = req.query;
+        res.json(db.prepare('SELECT * FROM payroll_periods WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?').all(tenantId, parseInt(limit as string), parseInt(offset as string)));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/hr/payroll-periods', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { periodName, periodType, startDate, endDate, paymentDate } = req.body;
+        if (!periodName || !periodType || !startDate || !endDate) return res.status(400).json({ error: 'periodName, periodType, startDate, endDate required' });
+        const db = getDatabase();
+        const id = 'prp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare(`INSERT INTO payroll_periods (id, tenant_id, period_name, period_type, start_date, end_date, payment_date, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`).run(id, tenantId, periodName, periodType, startDate, endDate, paymentDate || null, now, now);
+        res.json({ id, status: 'draft', success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/hr/payroll-periods/:id/process', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const period = db.prepare('SELECT * FROM payroll_periods WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!period) return res.status(404).json({ error: 'Payroll period not found' });
+        const employees = db.prepare("SELECT * FROM employees WHERE tenant_id = ? AND status = 'active'").all(tenantId) as any[];
+        const now = Date.now();
+        let processed = 0;
+        for (const emp of employees) {
+          const existing = db.prepare('SELECT * FROM payroll_items WHERE period_id = ? AND employee_id = ?').get(req.params.id, emp.id);
+          if (existing) continue;
+          const itemId = 'pri_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+          const monthlySalary = emp.base_salary || 0;
+          const socialSecurity = Math.min(monthlySalary * 0.05, 750);
+          const taxDeduction = monthlySalary > 50000 ? monthlySalary * 0.1 : 0;
+          const netPay = monthlySalary - socialSecurity - taxDeduction;
+          db.prepare(`INSERT INTO payroll_items (id, tenant_id, period_id, employee_id, base_salary, overtime_pay, bonus, commission, allowance, deductions, tax_deduction, social_security, net_pay, payment_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?, 'pending', ?, ?)`).run(itemId, tenantId, req.params.id, emp.id, monthlySalary, taxDeduction, socialSecurity, Math.round(netPay * 100) / 100, now, now);
+          processed++;
+        }
+        db.prepare("UPDATE payroll_periods SET status = 'processing', updated_at = ? WHERE id = ?").run(now, req.params.id);
+        res.json({ periodId: req.params.id, employeesProcessed: processed, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.get('/hr/payroll-periods/:id/items', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { employeeId } = req.query;
+        let sql = 'SELECT pi.*, e.first_name, e.last_name, e.department FROM payroll_items pi JOIN employees e ON pi.employee_id = e.id WHERE pi.tenant_id = ? AND pi.period_id = ?';
+        const params: any[] = [tenantId, req.params.id];
+        if (employeeId) { sql += ' AND pi.employee_id = ?'; params.push(employeeId); }
+        sql += ' ORDER BY e.department, e.first_name';
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/hr/payroll-periods/:id/pay', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const now = Date.now();
+        db.prepare("UPDATE payroll_items SET payment_status = 'paid', paid_at = ?, updated_at = ? WHERE period_id = ? AND tenant_id = ?").run(now, now, req.params.id, tenantId);
+        db.prepare("UPDATE payroll_periods SET status = 'paid', updated_at = ? WHERE id = ?").run(now, req.params.id);
+        res.json({ periodId: req.params.id, status: 'paid', paidAt: now, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    // Performance Reviews
+    router.get('/hr/performance-reviews', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const { employeeId, reviewerId, limit = '50', offset = '0' } = req.query;
+        let sql = 'SELECT pr.*, e.first_name, e.last_name, e.department FROM performance_reviews pr JOIN employees e ON pr.employee_id = e.id WHERE pr.tenant_id = ?';
+        const params: any[] = [tenantId];
+        if (employeeId) { sql += ' AND pr.employee_id = ?'; params.push(employeeId); }
+        if (reviewerId) { sql += ' AND pr.reviewer_id = ?'; params.push(reviewerId); }
+        sql += ' ORDER BY pr.created_at DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), parseInt(offset as string));
+        res.json(db.prepare(sql).all(...params));
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.post('/hr/performance-reviews', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const { employeeId, reviewerId, reviewPeriod, rating, goalsAchieved, strengths, areasForImprovement, overallFeedback } = req.body;
+        if (!employeeId || !reviewerId || !reviewPeriod) return res.status(400).json({ error: 'employeeId, reviewerId, reviewPeriod required' });
+        const db = getDatabase();
+        const id = 'prv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        db.prepare(`INSERT INTO performance_reviews (id, tenant_id, employee_id, reviewer_id, review_period, review_date, rating, goals_achieved, strengths, areas_for_improvement, overall_feedback, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`).run(id, tenantId, employeeId, reviewerId, reviewPeriod, now, rating || null, goalsAchieved || null, strengths || null, areasForImprovement || null, overallFeedback || null, now, now);
+        res.json({ id, status: 'draft', success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    router.put('/hr/performance-reviews/:id', (req: Request, res: Response) => {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) return res.status(400).json({ error: 'x-tenant-id header required' });
+        const db = getDatabase();
+        const existing = db.prepare('SELECT * FROM performance_reviews WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId) as any;
+        if (!existing) return res.status(404).json({ error: 'Review not found' });
+        const { status, rating, overallFeedback } = req.body;
+        if (!status) return res.status(400).json({ error: 'status required' });
+        const now = Date.now();
+        db.prepare(`UPDATE performance_reviews SET status = ?, rating = COALESCE(?, rating), overall_feedback = COALESCE(?, overall_feedback), updated_at = ? WHERE id = ? AND tenant_id = ?`).run(status, rating ?? null, overallFeedback || null, now, req.params.id, tenantId);
+        res.json({ id: req.params.id, status, success: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
     // ---- AI Provider Selection ----
     router.get('/ai/providers', (req: Request, res: Response) => {
       try {

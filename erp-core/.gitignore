@@ -1,24 +1,11 @@
 node_modules/
 dist/
+*.db
+*.db-journal
 data/
 .env
-*.log
-.DS_Store
-
-# Backup files
-*.bak
-
-# OS files
-Thumbs.db
-
-# Docker
-docker-data/
-
-# Etsy connector (separate repo)
-../etsy-connector/
-
-# Monitoring configs (templates only, actual data excluded)
-monitoring/*.db
-
-# Backup archives
+.env.*
 backups/
+.DS_Store
+*.log
+*.bak

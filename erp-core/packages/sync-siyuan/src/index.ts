@@ -332,3 +332,193 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`[Sync] SiYuan: ${SIYUAN_URL}, KB: ${KB_URL}`);
   sync.startPeriodicSync();
 });
+
+// ============================================================
+// Reverse Sync (KB → SiYuan)
+// Syncs KB documents back to SiYuan
+// ============================================================
+
+async function listKbDocuments(): Promise<any[]> {
+  const data: any[] = await kbGet("/api/documents");
+  return data;
+}
+
+async function getKbDocument(docId: string): Promise<any> {
+  const data = await kbGet(`/api/documents/${docId}`);
+  return data;
+}
+
+async function findSiYuanDoc(notebookId: string, title: string): Promise<string | null> {
+  try {
+    const docs = await listDocs(notebookId);
+    const found = docs.find((d: any) => (d.name || d.title) === title);
+    return found ? found.id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function updateSiYuanDoc(notebookId: string, docPath: string, markdown: string): Promise<boolean> {
+  try {
+    const result = await siyuanPost("/api/filetree/createDocWithMd", {
+      notebook: notebookId,
+      path: docPath,
+      markdown: markdown
+    });
+    return result.code === 0;
+  } catch (err: any) {
+    console.error(`[ReverseSync] Error updating SiYuan doc: ${err.message}`);
+    return false;
+  }
+}
+
+class ReverseSync {
+  private statePath = "./data/reverse-sync-state.json";
+  private state: { [kbDocId: string]: { lastSync: number; hash: string } } = {};
+  private stats = { totalSynced: 0, lastSyncTime: 0, errors: 0 };
+
+  constructor() {
+    this.loadState();
+  }
+
+  private loadState() {
+    try {
+      const dirname = path.dirname(this.statePath);
+      if (!fs.existsSync(dirname)) {
+        fs.mkdirSync(dirname, { recursive: true });
+      }
+      if (fs.existsSync(this.statePath)) {
+        this.state = JSON.parse(fs.readFileSync(this.statePath, "utf-8"));
+        console.log(`[ReverseSync] Loaded state: ${Object.keys(this.state).length} docs tracked`);
+      }
+    } catch {
+      this.state = {};
+    }
+  }
+
+  private saveState() {
+    try {
+      const dirname = path.dirname(this.statePath);
+      if (!fs.existsSync(dirname)) {
+        fs.mkdirSync(dirname, { recursive: true });
+      }
+      fs.writeFileSync(this.statePath, JSON.stringify(this.state, null, 2));
+    } catch (e) {
+      console.error("[ReverseSync] Failed to save state:", e);
+    }
+  }
+
+  private contentHash(content: string): string {
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash |= 0;
+    }
+    return hash.toString(36);
+  }
+
+  async syncAll(): Promise<{ synced: number; skipped: number; errors: number }> {
+    let synced = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    try {
+      const notebooks = await listNotebooks();
+      const erpNotebook = notebooks.find((n: any) => {
+        const name = n.name || n.notebook?.name || "";
+        return name === "ERP System Documentation";
+      });
+
+      if (!erpNotebook) {
+        console.log("[ReverseSync] ERP System Documentation notebook not found, skipping");
+        return { synced: 0, skipped: 0, errors: 0 };
+      }
+
+      const notebookId = erpNotebook.id || erpNotebook.notebook?.id;
+      const kbDocs = await listKbDocuments();
+
+      for (const doc of kbDocs) {
+        try {
+          const docId = doc.id;
+          const title = doc.title || doc.name;
+          if (!docId || !title) continue;
+
+          // Skip non-ERP docs
+          if (!doc.tags?.includes("siyuan") && !doc.collectionId) continue;
+
+          const content = doc.content || "";
+          const hash = this.contentHash(content);
+
+          const prev = this.state[docId];
+          if (prev && prev.hash === hash) {
+            skipped++;
+            continue;
+          }
+
+          // Update or create doc in SiYuan
+          const docPath = "/" + title;
+          const success = await updateSiYuanDoc(notebookId, docPath, content);
+
+          if (success) {
+            this.state[docId] = { lastSync: Date.now(), hash };
+            synced++;
+            console.log(`[ReverseSync] Synced to SiYuan: ${title}`);
+          } else {
+            errors++;
+          }
+        } catch (err: any) {
+          errors++;
+          console.error(`[ReverseSync] Error: ${err.message}`);
+        }
+      }
+
+      this.stats.totalSynced += synced;
+      this.stats.lastSyncTime = Date.now();
+      this.stats.errors += errors;
+      this.saveState();
+    } catch (err: any) {
+      console.error(`[ReverseSync] Cycle error: ${err.message}`);
+      errors++;
+    }
+
+    return { synced, skipped, errors };
+  }
+
+  getStats() {
+    return {
+      ...this.stats,
+      trackedDocs: Object.keys(this.state).length
+    };
+  }
+}
+
+const reverseSync = new ReverseSync();
+
+// Add reverse sync endpoints
+app.get("/reverse/stats", (_req: any, res: any) => {
+  res.json(reverseSync.getStats());
+});
+
+app.post("/reverse/sync", async (_req: any, res: any) => {
+  try {
+    const result = await reverseSync.syncAll();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Run reverse sync periodically (every 5 minutes)
+setInterval(async () => {
+  try {
+    const result = await reverseSync.syncAll();
+    if (result.synced > 0 || result.errors > 0) {
+      console.log(`[ReverseSync] Cycle: ${result.synced} synced, ${result.skipped} skipped, ${result.errors} errors`);
+    }
+  } catch (err: any) {
+    console.error(`[ReverseSync] Cycle error: ${err.message}`);
+  }
+}, 300000);
+
+console.log("[ReverseSync] Reverse sync initialized (runs every 5 minutes)");

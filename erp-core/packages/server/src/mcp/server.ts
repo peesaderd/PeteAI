@@ -922,6 +922,187 @@ const TOOLS = [
     temperature: z.number().optional().describe('Temperature'),
   })),
   // ============================================================
+  // HR & PAYROLL TOOLS
+  // ============================================================
+
+  tool('list_employees', 'List all employees', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    department: z.string().optional().describe('Filter by department'),
+    status: z.string().optional().describe('Filter by status (active/inactive/terminated/on_leave)'),
+    search: z.string().optional().describe('Search by name or code'),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool('get_employee', 'Get employee details', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().describe('Employee ID'),
+  })),
+
+  tool('create_employee', 'Create a new employee', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeCode: z.string().describe('Employee code'),
+    firstName: z.string().describe('First name'),
+    lastName: z.string().describe('Last name'),
+    email: z.string().optional(),
+    phone: z.string().optional(),
+    position: z.string().optional(),
+    department: z.string().optional(),
+    managerId: z.string().optional(),
+    hireDate: z.number().optional(),
+    employmentType: z.enum(['full_time','part_time','contract','intern','temporary']).optional(),
+    baseSalary: z.number().optional(),
+    currency: z.string().optional(),
+    bankName: z.string().optional(),
+    bankAccount: z.string().optional(),
+    taxId: z.string().optional(),
+    address: z.string().optional(),
+    emergencyContact: z.string().optional(),
+    emergencyPhone: z.string().optional(),
+    notes: z.string().optional(),
+  })),
+
+  tool('update_employee', 'Update employee details', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().describe('Employee ID'),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    email: z.string().optional(),
+    phone: z.string().optional(),
+    position: z.string().optional(),
+    department: z.string().optional(),
+    managerId: z.string().optional(),
+    status: z.enum(['active','inactive','terminated','on_leave']).optional(),
+    baseSalary: z.number().optional(),
+    currency: z.string().optional(),
+    bankName: z.string().optional(),
+    bankAccount: z.string().optional(),
+    taxId: z.string().optional(),
+    address: z.string().optional(),
+    emergencyContact: z.string().optional(),
+    emergencyPhone: z.string().optional(),
+    notes: z.string().optional(),
+  })),
+
+  tool('clock_in', 'Clock in for an employee', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().describe('Employee ID'),
+    timestamp: z.number().optional().describe('Custom timestamp (default now)'),
+  })),
+
+  tool('clock_out', 'Clock out for an employee', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().describe('Employee ID'),
+    timestamp: z.number().optional().describe('Custom timestamp (default now)'),
+  })),
+
+  tool('get_time_today', 'Get today time record for an employee', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().describe('Employee ID'),
+  })),
+
+  tool('list_time_records', 'List time tracking records', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().optional(),
+    dateFrom: z.string().optional(),
+    dateTo: z.string().optional(),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool('request_leave', 'Request a leave', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().describe('Employee ID'),
+    leaveType: z.enum(['annual','sick','personal','maternity','paternity','bereavement','unpaid','other']).describe('Leave type'),
+    startDate: z.string().describe('Start date (YYYY-MM-DD)'),
+    endDate: z.string().describe('End date (YYYY-MM-DD)'),
+    totalDays: z.number().describe('Total days'),
+    reason: z.string().optional(),
+  })),
+
+  tool('approve_leave', 'Approve or reject a leave request', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    leaveId: z.string().describe('Leave request ID'),
+    status: z.enum(['approved','rejected']).describe('New status'),
+    approvedBy: z.string().describe('Approver employee ID'),
+    notes: z.string().optional(),
+  })),
+
+  tool('list_leave_requests', 'List leave requests', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().optional(),
+    status: z.string().optional(),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool('get_leave_balance', 'Get leave balance for an employee', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().describe('Employee ID'),
+    year: z.number().optional().describe('Year (default current)'),
+  })),
+
+  tool('create_payroll_period', 'Create a payroll period', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    periodName: z.string().describe('Period name'),
+    periodType: z.enum(['weekly','biweekly','monthly']).describe('Period type'),
+    startDate: z.string().describe('Start date (YYYY-MM-DD)'),
+    endDate: z.string().describe('End date (YYYY-MM-DD)'),
+    paymentDate: z.string().optional().describe('Payment date'),
+  })),
+
+  tool('process_payroll', 'Process payroll for a period (generate payroll items for all active employees)', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    periodId: z.string().describe('Payroll period ID'),
+  })),
+
+  tool('list_payroll_periods', 'List payroll periods', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool('list_payroll_items', 'List payroll items for a period', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    periodId: z.string().describe('Payroll period ID'),
+    employeeId: z.string().optional(),
+  })),
+
+  tool('mark_payroll_paid', 'Mark payroll period as paid', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    periodId: z.string().describe('Payroll period ID'),
+    paidAt: z.number().optional().describe('Payment timestamp'),
+  })),
+
+  tool('create_performance_review', 'Create a performance review', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().describe('Employee ID'),
+    reviewerId: z.string().describe('Reviewer employee ID'),
+    reviewPeriod: z.string().describe('Review period (e.g. Q1-2026)'),
+    rating: z.number().min(1).max(5).optional(),
+    goalsAchieved: z.string().optional(),
+    strengths: z.string().optional(),
+    areasForImprovement: z.string().optional(),
+    overallFeedback: z.string().optional(),
+  })),
+
+  tool('list_performance_reviews', 'List performance reviews', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    employeeId: z.string().optional(),
+    reviewerId: z.string().optional(),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  })),
+
+  tool('update_performance_review', 'Update a performance review', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    reviewId: z.string().describe('Review ID'),
+    status: z.enum(['draft','submitted','acknowledged','completed']).describe('New status'),
+    rating: z.number().min(1).max(5).optional(),
+    overallFeedback: z.string().optional(),
+  })),
+
+  // ============================================================
   // MARKETING TOOLS
   // ============================================================
 
