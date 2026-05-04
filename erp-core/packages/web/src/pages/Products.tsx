@@ -1,81 +1,126 @@
-import React from 'react';
-import { Plus, Search, Edit2, Trash2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Package, Plus, Search, Edit3, Trash2, RefreshCw, BarChart3, Layers } from 'lucide-react';
 import { api } from '../lib/api';
+import { PageHeader, DataTable, StatusBadge, Modal, Input, Select, Tabs, StatCard } from '../components/ui';
 
 export default function Products() {
-  const [products, setProducts] = React.useState<any[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const [products, setProducts] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
+  const [boms, setBoms] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('products');
+  const [showModal, setShowModal] = useState(false);
+  const [editItem, setEditItem] = useState<any>(null);
+  const [search, setSearch] = useState('');
 
-  React.useEffect(() => {
-    api.mcp('list_products', { tenantId: 'demo', limit: 50 })
-      .then(r => {
-        const data = JSON.parse(r.content[0].text);
-        setProducts(data.products || []);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [p, i, b] = await Promise.all([
+        api.products.list(),
+        api.products.inventory(),
+        api.bom.list(),
+      ]);
+      setProducts(JSON.parse(p.content[0].text));
+      setInventory(JSON.parse(i.content[0].text));
+      setBoms(JSON.parse(b.content[0].text));
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const filtered = products.filter((p: any) =>
+    !search || p.name?.toLowerCase().includes(search.toLowerCase()) || p.sku?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const columns = [
+    { header: 'SKU', accessor: 'sku' },
+    { header: 'Name', accessor: 'name' },
+    { header: 'Price', render: (r: any) => `$${r.price?.toFixed(2)}` },
+    { header: 'Cost', render: (r: any) => `$${r.cost?.toFixed(2)}` },
+    { header: 'Stock', render: (r: any) => {
+      const inv = inventory.find((i: any) => i.productId === r.id || i.product_id === r.id);
+      return <span className={`font-medium ${inv && (inv.quantity || 0) <= 5 ? 'text-red-600' : ''}`}>{inv?.quantity || inv?.stock || 0}</span>;
+    }},
+    { header: 'Status', render: (r: any) => <StatusBadge status={r.isActive || r.is_active ? 'active' : 'inactive'} /> },
+  ];
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Products</h1>
-        <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
+      <PageHeader title="Products" description="Manage products, inventory, and BOMs">
+        <button onClick={load} className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50"><RefreshCw size={18} /></button>
+        <button onClick={() => { setEditItem(null); setShowModal(true); }} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
           <Plus size={16} /> Add Product
         </button>
-      </div>
+      </PageHeader>
 
-      <div className="bg-white rounded-xl border border-gray-200">
-        <div className="p-4 border-b border-gray-200">
-          <div className="relative">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search products..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+      <Tabs tabs={[
+        { id: 'products', label: `Products (${products.length})` },
+        { id: 'inventory', label: `Inventory (${inventory.length})` },
+        { id: 'bom', label: `BOMs (${boms.length})` },
+      ]} active={tab} onChange={setTab} />
+
+      {tab === 'products' && (
+        <>
+          <div className="mb-4 relative">
+            <Search size={18} className="absolute left-3 top-2.5 text-gray-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products..." className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm" />
           </div>
+          <DataTable columns={columns} data={filtered} loading={loading} />
+        </>
+      )}
+
+      {tab === 'inventory' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <StatCard icon={Package} label="Total Products" value={inventory.length.toString()} color="bg-blue-500" />
+            <StatCard icon={BarChart3} label="Total Value" value={`$${inventory.reduce((s: number, i: any) => s + ((i.quantity || 0) * (i.unitCost || i.unit_cost || 0)), 0).toLocaleString()}`} color="bg-green-500" />
+            <StatCard icon={Layers} label="Low Stock" value={inventory.filter((i: any) => (i.quantity || 0) <= 5).length.toString()} color="bg-orange-500" />
+          </div>
+          <DataTable columns={[
+            { header: 'Product', accessor: 'productName' },
+            { header: 'SKU', accessor: 'sku' },
+            { header: 'Quantity', render: (r: any) => <span className="font-medium">{r.quantity || 0}</span> },
+            { header: 'Unit Cost', render: (r: any) => `$${(r.unitCost || r.unit_cost || 0).toFixed(2)}` },
+            { header: 'Location', render: (r: any) => r.warehouseName || r.location || '-' },
+            { header: 'Status', render: (r: any) => (r.quantity || 0) <= 5 ? <StatusBadge status="low_stock" mapping={{ low_stock: 'bg-red-100 text-red-700' }} /> : <StatusBadge status="in_stock" mapping={{ in_stock: 'bg-green-100 text-green-700' }} /> },
+          ]} data={inventory} loading={loading} />
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="text-left text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-6 py-3">Name</th>
-                <th className="px-6 py-3">SKU</th>
-                <th className="px-6 py-3">Price</th>
-                <th className="px-6 py-3">Stock</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {loading ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">Loading...</td></tr>
-              ) : products.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">No products found</td></tr>
-              ) : products.map((p: any) => (
-                <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{p.name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{p.sku}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900">${p.price?.toFixed(2)}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{p.stock}</td>
-                  <td className="px-6 py-4">
-                    <span className={`text-xs px-2 py-1 rounded-full ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {p.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-2">
-                      <button className="p-1 hover:bg-gray-100 rounded"><Edit2 size={14} /></button>
-                      <button className="p-1 hover:bg-gray-100 rounded"><Trash2 size={14} className="text-red-500" /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      )}
+
+      {tab === 'bom' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <DataTable columns={[
+            { header: 'Name', accessor: 'name' },
+            { header: 'Product', accessor: 'productName' },
+            { header: 'Quantity', render: (r: any) => r.quantity || r.outputQuantity || 1 },
+            { header: 'Status', render: (r: any) => <StatusBadge status={r.status || 'active'} /> },
+          ]} data={boms} loading={loading} />
         </div>
-      </div>
+      )}
+
+      <Modal open={showModal} onClose={() => setShowModal(false)} title={editItem ? 'Edit Product' : 'Add Product'}>
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target as HTMLFormElement);
+          const data = Object.fromEntries(fd);
+          try {
+            await api.products.create(data);
+            setShowModal(false);
+            load();
+          } catch (err: any) { alert(err.message); }
+        }}>
+          <Input label="Product Name" name="name" required />
+          <Input label="SKU" name="sku" required />
+          <Input label="Price" name="price" type="number" step="0.01" required />
+          <Input label="Cost" name="cost" type="number" step="0.01" />
+          <Select label="Status" name="isActive" options={[{ value: 'true', label: 'Active' }, { value: 'false', label: 'Inactive' }]} />
+          <div className="flex justify-end gap-3 mt-6">
+            <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button type="submit" className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

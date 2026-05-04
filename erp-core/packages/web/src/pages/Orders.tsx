@@ -1,81 +1,88 @@
-import React from 'react';
-import { Search, Eye } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ShoppingCart, Plus, Search, RefreshCw, Eye, Truck } from 'lucide-react';
 import { api } from '../lib/api';
+import { PageHeader, DataTable, StatusBadge, Modal, Input, Select, Tabs, StatCard } from '../components/ui';
 
 export default function Orders() {
-  const [orders, setOrders] = React.useState<any[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [tab, setTab] = useState('sales');
 
-  React.useEffect(() => {
-    api.mcp('list_orders', { tenantId: 'demo', limit: 50 })
-      .then(r => {
-        const data = JSON.parse(r.content[0].text);
-        setOrders(data.orders || []);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const statusColors: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-700',
-    processing: 'bg-blue-100 text-blue-700',
-    shipped: 'bg-purple-100 text-purple-700',
-    delivered: 'bg-green-100 text-green-700',
-    cancelled: 'bg-red-100 text-red-700',
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await api.orders.list();
+      setOrders(JSON.parse(res.content[0].text));
+    } catch (e) { console.error(e); }
+    setLoading(false);
   };
+  useEffect(() => { load(); }, []);
+
+  const filtered = orders.filter((o: any) =>
+    !search || o.id?.includes(search) || o.customerName?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const salesOrders = filtered.filter((o: any) => o.type === 'sales' || !o.type);
+  const purchaseOrders = filtered.filter((o: any) => o.type === 'purchase');
+
+  const columns = [
+    { header: 'Order ID', render: (r: any) => <span className="font-mono text-xs">{r.id?.slice(0, 12)}...</span> },
+    { header: 'Customer', accessor: 'customerName' },
+    { header: 'Items', render: (r: any) => r.items?.length || r.totalQuantity || 0 },
+    { header: 'Total', render: (r: any) => <span className="font-medium">${(r.total || r.totalAmount || 0).toFixed(2)}</span> },
+    { header: 'Status', render: (r: any) => <StatusBadge status={r.status || 'pending'} /> },
+    { header: 'Date', render: (r: any) => new Date(r.createdAt || r.created_at || Date.now()).toLocaleDateString() },
+  ];
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Orders</h1>
+      <PageHeader title="Orders" description="Sales orders and purchase orders">
+        <button onClick={load} className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50"><RefreshCw size={18} /></button>
+        <button onClick={() => setShowModal(true)} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
+          <Plus size={16} /> New Order
+        </button>
+      </PageHeader>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <StatCard icon={ShoppingCart} label="Total Orders" value={orders.length.toString()} color="bg-blue-500" />
+        <StatCard icon={Truck} label="Pending" value={orders.filter((o: any) => o.status === 'pending').length.toString()} color="bg-yellow-500" />
+        <StatCard icon={ShoppingCart} label="Completed" value={orders.filter((o: any) => o.status === 'completed').length.toString()} color="bg-green-500" />
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200">
-        <div className="p-4 border-b border-gray-200">
-          <div className="relative">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" placeholder="Search orders..." className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="text-left text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-6 py-3">Order #</th>
-                <th className="px-6 py-3">Customer</th>
-                <th className="px-6 py-3">Items</th>
-                <th className="px-6 py-3">Total</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Date</th>
-                <th className="px-6 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {loading ? (
-                <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400">Loading...</td></tr>
-              ) : orders.length === 0 ? (
-                <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400">No orders found</td></tr>
-              ) : orders.map((o: any) => (
-                <tr key={o.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">#{o.order_number || o.id.slice(0, 8)}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{o.customer_name || 'N/A'}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{o.item_count || '-'}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900">${o.total?.toFixed(2)}</td>
-                  <td className="px-6 py-4">
-                    <span className={`text-xs px-2 py-1 rounded-full ${statusColors[o.status] || 'bg-gray-100'}`}>
-                      {o.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{o.created_at ? new Date(o.created_at * 1000).toLocaleDateString() : '-'}</td>
-                  <td className="px-6 py-4">
-                    <button className="p-1 hover:bg-gray-100 rounded"><Eye size={14} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <Tabs tabs={[
+        { id: 'sales', label: `Sales Orders (${salesOrders.length})` },
+        { id: 'purchase', label: `Purchase Orders (${purchaseOrders.length})` },
+      ]} active={tab} onChange={setTab} />
+
+      <div className="mb-4 relative">
+        <Search size={18} className="absolute left-3 top-2.5 text-gray-400" />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search orders..." className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm" />
       </div>
+
+      <DataTable columns={columns} data={tab === 'sales' ? salesOrders : purchaseOrders} loading={loading} />
+
+      <Modal open={showModal} onClose={() => setShowModal(false)} title="New Order">
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target as HTMLFormElement);
+          const data = Object.fromEntries(fd);
+          try {
+            await api.orders.create({ ...data, items: [] });
+            setShowModal(false);
+            load();
+          } catch (err: any) { alert(err.message); }
+        }}>
+          <Input label="Customer Name" name="customerName" required />
+          <Select label="Type" name="type" options={[{ value: 'sales', label: 'Sales Order' }, { value: 'purchase', label: 'Purchase Order' }]} />
+          <Input label="Total Amount" name="total" type="number" step="0.01" required />
+          <div className="flex justify-end gap-3 mt-6">
+            <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button type="submit" className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Create</button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
