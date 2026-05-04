@@ -3,14 +3,30 @@ import { Settings as SettingsIcon, Save, RefreshCw, Shield, Users, Key, Bell, Pa
 import { api } from '../lib/api';
 import { PageHeader, Input, Select, Tabs, StatCard } from '../components/ui';
 
+const STORAGE_KEY = 'erp_theme_settings';
+
+function loadSavedTheme() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return {};
+}
+
 export default function Settings() {
   const [tab, setTab] = useState('general');
   const [saved, setSaved] = useState(false);
-  const [themeMode, setThemeMode] = useState('light');
-  const [primaryColor, setPrimaryColor] = useState('#2563eb');
-  const [layout, setLayout] = useState('sidebar');
-  const [fontSize, setFontSize] = useState('Medium');
+  const [themeMode, setThemeMode] = useState(loadSavedTheme().themeMode || 'light');
+  const [primaryColor, setPrimaryColor] = useState(loadSavedTheme().primaryColor || '#2563eb');
+  const [layout, setLayout] = useState(loadSavedTheme().layout || 'sidebar');
+  const [fontSize, setFontSize] = useState(loadSavedTheme().fontSize || 'Medium');
 
+  // Persist to localStorage whenever settings change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ themeMode, primaryColor, layout, fontSize }));
+  }, [themeMode, primaryColor, layout, fontSize]);
+
+  // Apply theme mode (dark/light/system)
   useEffect(() => {
     if (themeMode === 'dark') {
       document.documentElement.classList.add('dark');
@@ -26,16 +42,20 @@ export default function Settings() {
     }
   }, [themeMode]);
 
+  // Apply primary color
   useEffect(() => {
     document.documentElement.style.setProperty('--primary-color', primaryColor);
+    // Also update tailwind primary colors
+    document.documentElement.style.setProperty('--primary-500', primaryColor);
   }, [primaryColor]);
 
+  // Apply font size
   useEffect(() => {
-    const sizes = { Small: '14px', Medium: '16px', Large: '18px' };
+    const sizes: Record<string, string> = { Small: '14px', Medium: '16px', Large: '18px' };
     document.documentElement.style.setProperty('--font-size-base', sizes[fontSize] || '16px');
   }, [fontSize]);
 
-  const handleSave = (e) => {
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -44,12 +64,11 @@ export default function Settings() {
   const handleSaveTheme = async () => {
     try {
       await api.ui.updateTheme({ themeMode, primaryColor, layout, fontSize });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      console.warn('Theme API not available, saved locally only');
     }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
   };
 
   const tabs = [
@@ -61,7 +80,7 @@ export default function Settings() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Settings" description="Manage your application settings and preferences." icon={SettingsIcon} />
+      <PageHeader title="Settings" description="Manage your application settings and preferences." />
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
       <div className="space-y-6">
         {tab === 'general' && (
