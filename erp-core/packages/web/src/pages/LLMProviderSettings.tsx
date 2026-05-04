@@ -186,7 +186,7 @@ export default function LLMProviderSettings() {
           </div>
 
           <Input label="API Endpoint" name="endpoint" defaultValue={editing?.endpoint || ""} placeholder="https://api.openai.com/v1" />
-          <Input label="API Key" name="api_key" type="password" placeholder={editing ? "(leave blank to keep existing)" : ""} />
+          <Input label="API Key" name="api_key" type="password" defaultValue={editing?.api_key || ""} placeholder={editing ? "(leave blank to keep existing)" : ""} />
           
           <div className="flex items-center gap-2 mt-4 mb-2">
             <input type="checkbox" name="is_default" value="1" id="is_default" defaultChecked={!!editing?.is_default} className="rounded border-gray-300" />

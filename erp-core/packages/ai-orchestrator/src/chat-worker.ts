@@ -312,7 +312,7 @@ export class ChatWorker {
         this.memory.createSessionWithId(sessionId, agent, "default");
         const verifySession = this.memory.getSession(sessionId);
         console.log(`[ChatWorker] Session "${sessionId}" created:`, !!verifySession);
-      } catch (err) {
+      } catch (err: any) {
         console.error(`[ChatWorker] Session "${sessionId}" creation failed:`, err.message);
       }
     }
@@ -419,14 +419,14 @@ export class ChatWorker {
     // Store in memory
     try {
       this.memory.addMessage(sessionId, "user", message);
-    } catch (err) {
+    } catch (err: any) {
       console.error(`[ChatWorker] addMessage(user) failed:`, err.message);
     }
     try {
       this.memory.addMessage(sessionId, "assistant", reply, {
         toolResults: JSON.stringify(toolResults),
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error(`[ChatWorker] addMessage(assistant) failed:`, err.message);
     }
 
@@ -492,14 +492,14 @@ export class ChatWorker {
     // Store in memory
     try {
       this.memory.addMessage(sessionId, "user", message);
-    } catch (err) {
+    } catch (err: any) {
       console.error(`[ChatWorker] processWithRules addMessage(user) failed:`, err.message);
     }
     try {
       this.memory.addMessage(sessionId, "assistant", response, {
         toolResults: JSON.stringify(toolResults),
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error(`[ChatWorker] processWithRules addMessage(assistant) failed:`, err.message);
     }
 

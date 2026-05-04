@@ -12,14 +12,10 @@ import { Scheduler } from "./scheduler.js";
 import { LLMClient, type LLMMessage } from "./llm.js";
 import { AgentLoop } from "./agent-loop.js";
 import { RedisTaskQueue } from "./redis-queue.js";
-import { Supervisor } from "./supervisor.js";
-import { createClient } from "redis";
-import { ChatWorker } from "./chat-worker.js";
 import { v4 as uuidv4 } from "uuid";
 import { WorkflowEngine } from "./workflow.js";
 
 const PORT = parseInt(process.env.ORCHESTRATOR_PORT || "54516", 10);
-const REDIS_URL = process.env.REDIS_URL || "redis://docker-redis:6379";
 
 async function main() {
   const app = express();
@@ -47,66 +43,9 @@ async function main() {
     agentLoop.setRedisQueue(redisQueue);
   }
 
-  // ============================================================
-  // Supervisor — Loop Detection, Circuit Breaker, Healthcheck
-  // ============================================================
-
-  const supervisor = new Supervisor({
-    heartbeatTimeoutMs: 30000,
-    loopDetectionThreshold: 3,
-    circuitBreakerThreshold: 3,
-    circuitBreakerCooldownMs: 60000,
-    healthcheckIntervalMs: 30000,
-    inactivityTimeoutMs: parseInt(process.env.SUPERVISOR_INACTIVITY_TIMEOUT_MS || "300000", 10),
-    inactivityAlertTimeoutMs: parseInt(process.env.SUPERVISOR_INACTIVITY_ALERT_TIMEOUT_MS || "900000", 10),
-    autoPromptEnabled: process.env.SUPERVISOR_AUTO_PROMPT_ENABLED !== "false",
-    slackWebhookUrl: process.env.SLACK_WEBHOOK_URL || undefined,
-    lineWebhookUrl: process.env.LINE_WEBHOOK_URL || undefined,
-    alertWebhookUrl: process.env.ALERT_WEBHOOK_URL || undefined,
-  });
-
-  supervisor.setAlertHandler((message: string) => {
-    console.log(`[Supervisor Alert] ${message}`);
-    // TODO: Send to Slack/LINE webhook when configured
-  });
-
-  await supervisor.connect();
-  supervisor.start();
-
-  // Auto-prompt handler — pushes prompt to Redis when supervisor detects inactivity
-  supervisor.setAutoPromptHandler((sessionId: string, agentName: string) => {
-    const prompts: Record<string, string> = {
-      rd: "คุณเป็น R&D Agent ของทีม ERP โปรดตรวจสอบงานที่ค้างอยู่และรายงานสถานะปัจจุบัน",
-      brainstorm: "คุณเป็น Brainstorm Agent โปรดเสนอไอเดียหรือแนวทางใหม่ๆ สำหรับระบบ ERP",
-      production: "คุณเป็น Production Agent โปรดตรวจสอบงาน implementation ที่ค้างอยู่",
-      design: "คุณเป็น Design Agent โปรดตรวจสอบ design system และ UI components",
-      marketing: "คุณเป็น Marketing Agent โปรดตรวจสอบ campaign และ content ที่ค้างอยู่",
-    };
-    const prompt = prompts[agentName] || `โปรดดำเนินการงานของคุณในฐานะ ${agentName} Agent`;
-    const redis = createClient({ url: REDIS_URL });
-    redis.connect().then(() => {
-      redis.lPush("queue:chat:messages", JSON.stringify({
-        sessionId,
-        agentName,
-        role: "user",
-        content: prompt,
-        timestamp: Date.now(),
-      })).then(() => {
-        console.log(`[Supervisor] Auto-prompt sent to ${agentName} session ${sessionId.slice(0, 8)}`);
-      }).finally(() => redis.disconnect());
-    });
-  });
-
+  const workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
 
   // ============================================================
-  // Chat Worker — Processes chat messages via Redis Queue
-  // ============================================================
-
-  const chatWorker = new ChatWorker(toolRouter, memory, supervisor);
-  await chatWorker.connect();
-  chatWorker.start();
-const workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
-
 
   // ============================================================
   // Health & Info
@@ -144,42 +83,9 @@ const workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
       // Generate session ID if not provided
       const sid = sessionId || "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
 
-      // Track activity for inactivity detection
-      supervisor.trackActivity(sid, agentName);
-
-      // Check circuit breaker before processing
-      const cb = supervisor.checkCircuitBreaker("chat-worker");
-      if (!cb.allowed) {
-        const cooldownRemaining = cb.state.cooldownUntil
-          ? Math.ceil((cb.state.cooldownUntil - Date.now()) / 1000)
-          : 60;
-        return res.json({
-          sessionId: sid,
-          response: "\u26a0\ufe0f The chat service is temporarily paused due to repeated issues. It will resume automatically in " + cooldownRemaining + " seconds. Please try again shortly.",
-          agent: agentName,
-          toolResults: [{ tool: "supervisor", result: { circuitBreaker: "open", cooldownRemaining } }],
-        });
-      }
-
       // Check if LLM is configured
       const llmConfigured = !!(process.env.LLM_API_KEY && process.env.LLM_API_KEY !== "sk-your-key-here");
 
-      if (llmConfigured && chatWorker.isConnected()) {
-        // Redis Queue mode: push to queue and wait for response
-        const pushed = await chatWorker.pushMessage(sid, message, agentName, language);
-        if (pushed) {
-          const response = await chatWorker.waitForResponse(sid, 30000);
-          if (response) {
-            return res.json({
-              sessionId: sid,
-              ...response,
-            });
-          }
-          console.warn("[Chat] Redis response timeout for " + sid + ", falling back to direct");
-        }
-      }
-
-      // Direct processing (fallback if Redis unavailable or timeout)
       const agentPrompts: Record<string, string> = {
         rd: "You are an R&D AI agent. Your role is to research, analyze, and propose innovative solutions.",
         brainstorm: "You are a Brainstorm AI agent. Your role is to generate creative ideas and facilitate brainstorming sessions.",
@@ -222,7 +128,6 @@ const workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
         memory.addMessage(sid, "assistant", reply);
 
         // Record heartbeat
-        supervisor.recordHeartbeat("chat-direct", agentName, "alive");
 
         return res.json({
           sessionId: sid,
@@ -265,7 +170,6 @@ const workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
       memory.addMessage(sid, "assistant", response);
 
       // Record heartbeat
-      supervisor.recordHeartbeat("chat-direct", agentName, "alive");
 
       res.json({
         sessionId: sid,
@@ -842,8 +746,6 @@ app.get("/api/tasks", (req, res) => {
     console.log(
       `[AI Orchestrator] Agent Loop: ${process.env.AGENT_LOOP_ENABLED === "true" ? "RUNNING" : "STOPPED (set AGENT_LOOP_ENABLED=true to start)"}`
     );
-    console.log(`[AI Orchestrator] Supervisor: RUNNING (loop=${supervisor.getStatus().config.loopDetectionThreshold}x, breaker=${supervisor.getStatus().config.circuitBreakerThreshold}x)`);
-    console.log(`[AI Orchestrator] Chat Worker: ${chatWorker.isConnected() ? "REDIS QUEUE" : "DIRECT MODE (Redis unavailable)"}`);
   });
 }
 

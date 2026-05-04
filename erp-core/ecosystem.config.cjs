@@ -12,7 +12,10 @@ module.exports = {
         TENANT_ID: "t_001",
         KB_URL: "http://127.0.0.1:3100",
         SIYUAN_URL: "http://127.0.0.1:54511",
-        SIYUAN_API_TOKEN: "w8qyx729d7pm5zqn"
+        SIYUAN_API_TOKEN: "w8qyx729d7pm5zqn",
+        TELEGRAM_BOT_TOKEN: "8797457294:AAETDne97sVGENdcd_yrXV8_xSRkshNKwfQ",
+        ORCHESTRATOR_URL: "http://localhost:54516",
+        LLM_PROVIDERS_ENCRYPTION_KEY: "erp-core-llm-encryption-key-2026!!"
       }
     },
     {

@@ -55,11 +55,25 @@ export default function Settings() {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const saveIntegrations = () => {
+  const saveIntegrations = async () => {
     localStorage.setItem('erp_telegram_token', telegramToken);
     localStorage.setItem('erp_telegram_enabled', telegramEnabled ? 'true' : 'false');
     localStorage.setItem('erp_slack_webhook', slackWebhook);
     localStorage.setItem('erp_line_token', lineToken);
+
+    // Save Telegram token to server
+    if (telegramToken) {
+      try {
+        await fetch('/api/settings/telegram', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ botToken: telegramToken }),
+        });
+      } catch (err: any) {
+        console.warn('Failed to save Telegram token to server:', err.message);
+      }
+    }
+
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
