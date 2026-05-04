@@ -193,6 +193,14 @@ export const api = {
     deleteProvider: (id: string) => restDelete(`/ai/providers/${id}`),
     testProvider: (id: string) => restPost(`/ai/providers/${id}/test`, {}),
     activateProvider: (id: string) => restPost(`/ai/providers/${id}/activate`, {}),
+  },  // end ai
+  // UI / Theme
+  ui: {
+    theme: () => restGet("/ui/theme"),
+    settings: () => restGet("/ui/settings"),
+    layouts: () => restGet("/ui/layouts"),
+    components: () => restGet("/ui/components"),
+    updateTheme: (data: any) => restPost("/ui/theme", data),
   },
 
   // Knowledge Base
