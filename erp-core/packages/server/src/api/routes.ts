@@ -150,6 +150,20 @@ export function createRouter() {
     }
   });
 
+  // Save Telegram bot token from frontend
+  router.post("/api/settings/telegram", async (req: Request, res: Response) => {
+    try {
+      const { botToken } = req.body;
+      if (botToken) {
+        process.env.TELEGRAM_BOT_TOKEN = botToken;
+        console.log("[Telegram] Bot token updated from frontend");
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Mount LLM Providers settings API
   const llmProvidersRouter = createLLMProvidersRouter();
   router.use("/settings/llm-providers", llmProvidersRouter);
