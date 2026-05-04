@@ -305,8 +305,16 @@ export class ChatWorker {
   }): Promise<void> {
     const { sessionId, message, agent, language } = task;
     // Ensure session exists in memory
-    if (!this.memory.getSession(sessionId)) {
-      this.memory.createSessionWithId(sessionId, agent, "default");
+    const existingSession = this.memory.getSession(sessionId);
+    console.log(`[ChatWorker] Session "${sessionId}" exists:`, !!existingSession);
+    if (!existingSession) {
+      try {
+        this.memory.createSessionWithId(sessionId, agent, "default");
+        const verifySession = this.memory.getSession(sessionId);
+        console.log(`[ChatWorker] Session "${sessionId}" created:`, !!verifySession);
+      } catch (err) {
+        console.error(`[ChatWorker] Session "${sessionId}" creation failed:`, err.message);
+      }
     }
     console.log(`[ChatWorker] Processing ${agent}: "${message.slice(0, 50)}..."`);
 
@@ -409,10 +417,18 @@ export class ChatWorker {
     const reply = response.content || "I processed your request but couldn't generate a response.";
 
     // Store in memory
-    this.memory.addMessage(sessionId, "user", message);
-    this.memory.addMessage(sessionId, "assistant", reply, {
-      toolResults: JSON.stringify(toolResults),
-    });
+    try {
+      this.memory.addMessage(sessionId, "user", message);
+    } catch (err) {
+      console.error(`[ChatWorker] addMessage(user) failed:`, err.message);
+    }
+    try {
+      this.memory.addMessage(sessionId, "assistant", reply, {
+        toolResults: JSON.stringify(toolResults),
+      });
+    } catch (err) {
+      console.error(`[ChatWorker] addMessage(assistant) failed:`, err.message);
+    }
 
     // Publish response
     await this.publishResponse(sessionId, {
@@ -474,10 +490,18 @@ export class ChatWorker {
     }
 
     // Store in memory
-    this.memory.addMessage(sessionId, "user", message);
-    this.memory.addMessage(sessionId, "assistant", response, {
-      toolResults: JSON.stringify(toolResults),
-    });
+    try {
+      this.memory.addMessage(sessionId, "user", message);
+    } catch (err) {
+      console.error(`[ChatWorker] processWithRules addMessage(user) failed:`, err.message);
+    }
+    try {
+      this.memory.addMessage(sessionId, "assistant", response, {
+        toolResults: JSON.stringify(toolResults),
+      });
+    } catch (err) {
+      console.error(`[ChatWorker] processWithRules addMessage(assistant) failed:`, err.message);
+    }
 
     // Publish response
     await this.publishResponse(sessionId, {

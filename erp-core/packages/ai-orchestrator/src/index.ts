@@ -191,8 +191,13 @@ const workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
       if (llmConfigured) {
         // Direct LLM mode
         const systemPrompt = agentPrompts[agentName] || agentPrompts.rd;
+        const history = memory.getConversationContext(sid, 20);
         const llmMessages: LLMMessage[] = [
           { role: "system", content: systemPrompt },
+          ...history.map((m: any) => ({
+            role: m.role,
+            content: m.content,
+          })),
           { role: "user", content: message },
         ];
 
