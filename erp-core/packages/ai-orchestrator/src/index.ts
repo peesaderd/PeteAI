@@ -232,23 +232,22 @@ const workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
       let response = "";
 
       if (msg.includes("hello") || msg.includes("hi") || msg.includes("\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35")) {
-        response = "Hello! I am your **" + agentName.toUpperCase() + " Agent**. How can I help you today?";
+        response = "รับทราบครับ มีอะไรให้ช่วยไหมครับ";
       } else if (msg.includes("tool") || msg.includes("what can you do") || msg.includes("help")) {
         const tools = toolRouter.getTools();
         response = "I have access to the following tools:\n" +
           tools.map((t) => "  - **" + t.name + "**: " + t.description).join("\n");
       } else if (msg.includes("research") || msg.includes("search") || msg.includes("find") || msg.includes("\u0e04\u0e49\u0e19\u0e2b\u0e32")) {
-        response = "I will help you research that. Let me search the knowledge base and explore available information.";
+        response = "กำลังค้นหาข้อมูลให้ครับ";
       } else if (msg.includes("status") || msg.includes("health") || msg.includes("\u0e2a\u0e16\u0e32\u0e19\u0e30")) {
         try {
           const health = await toolRouter.executeTool("orchestrator_health", {});
           response = "**System Status:**\n\\\`\\\`\\\`json\n" + JSON.stringify(health.data, null, 2) + "\n\\\`\\\`\\\`";
         } catch {
-          response = "I\m running but couldn	 fetch system status.";
+          response = "System is running.";
         }
       } else {
-        response = "I understand your message. As the **" + agentName.toUpperCase() + " Agent**, I can help you with research, analysis, and task delegation.\n\n" +
-          "*For full AI capabilities, please configure LLM_API_KEY in .env to enable DeepSeek.*";
+        response = "รับทราบครับ มีอะไรให้ช่วยเพิ่มเติมไหมครับ";
       }
 
       // Ensure session exists

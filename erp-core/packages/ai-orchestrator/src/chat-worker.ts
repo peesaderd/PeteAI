@@ -271,7 +271,7 @@ export class ChatWorker {
       }
 
       // Pop message from queue
-      const result = await this.redis.brPop(CHAT_QUEUE_KEY, 0);
+      const result = await this.redis.brPop(CHAT_QUEUE_KEY, 1);
       if (!result) {
         this.processing = false;
         return;
@@ -304,6 +304,10 @@ export class ChatWorker {
     timestamp: number;
   }): Promise<void> {
     const { sessionId, message, agent, language } = task;
+    // Ensure session exists in memory
+    if (!this.memory.getSession(sessionId)) {
+      this.memory.createSessionWithId(sessionId, agent, "default");
+    }
     console.log(`[ChatWorker] Processing ${agent}: "${message.slice(0, 50)}..."`);
 
     try {

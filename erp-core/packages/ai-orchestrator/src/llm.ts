@@ -1,17 +1,11 @@
 import Database from "better-sqlite3";
 import path from "path";
-
-import Database from "better-sqlite3";
-import path from "path";
+import fs from "fs";
 
 // ============================================================
 // LLM Client - Agent decision making via OpenAI-compatible API
 // Supports OpenAI, Anthropic, Ollama, OpenHands SDK, etc.
 // Fallback to rule-based decisions when no LLM configured
-
-import Database from "better-sqlite3";
-import path from "path";
-
 // ============================================================
 
 export interface LLMMessage {
@@ -50,24 +44,22 @@ export class LLMClient {
   private config: LLMConfig;
   private tokenBudget: number;
   private tokenUsed: number;
-  private tokenBudgetPeriod: number; // ms
+  private tokenBudgetPeriod: number;
   private tokenBudgetStart: number;
 
   constructor(tenantId?: string) {
     this.config = {
-      apiUrl: process.env.LLM_API_URL || "",
+      apiUrl: process.env.LLM_BASE_URL || process.env.LLM_API_URL || "https://api.deepseek.com/v1",
       apiKey: process.env.LLM_API_KEY || "",
-      model: process.env.LLM_MODEL || "gpt-4o",
+      model: process.env.LLM_MODEL || "deepseek-chat",
       maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096", 10),
       temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.3"),
     };
-    // Token budget: max tokens per period (default 100K per minute)
     this.tokenBudget = parseInt(process.env.LLM_TOKEN_BUDGET || "100000", 10);
     this.tokenUsed = 0;
     this.tokenBudgetPeriod = parseInt(process.env.LLM_TOKEN_BUDGET_PERIOD || "60000", 10);
     this.tokenBudgetStart = Date.now();
 
-    // Try to load active provider from ERP Core DB (shared volume)
     if (tenantId) {
       this.loadProviderFromDb(tenantId);
     }
@@ -76,7 +68,7 @@ export class LLMClient {
   private loadProviderFromDb(tenantId: string): void {
     try {
       const erpDbPath = process.env.ERP_DB_PATH || "/app/data/erp-core.db";
-      if (!require("fs").existsSync(erpDbPath)) return;
+      if (!fs.existsSync(erpDbPath)) return;
       const db = new Database(erpDbPath);
       const row = db.prepare("SELECT provider, api_key, api_url, model, max_tokens, temperature FROM ai_providers WHERE tenant_id = ? AND is_active = 1 LIMIT 1").get(tenantId) as any;
       db.close();
@@ -93,19 +85,16 @@ export class LLMClient {
     }
   }
 
-  // Check if we have budget remaining
   hasBudget(estimatedTokens: number = 0): boolean {
     this.resetBudgetIfExpired();
     return (this.tokenUsed + estimatedTokens) <= this.tokenBudget;
   }
 
-  // Get remaining budget
   getRemainingBudget(): number {
     this.resetBudgetIfExpired();
     return Math.max(0, this.tokenBudget - this.tokenUsed);
   }
 
-  // Reset budget if period expired
   private resetBudgetIfExpired(): void {
     if (Date.now() - this.tokenBudgetStart > this.tokenBudgetPeriod) {
       this.tokenUsed = 0;
@@ -113,7 +102,6 @@ export class LLMClient {
     }
   }
 
-  // Track token usage from API response
   private trackUsage(usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined): void {
     if (!usage) return;
     const total = usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0);
@@ -121,28 +109,23 @@ export class LLMClient {
     console.log(`[LLM] Token usage: +${total} (total this period: ${this.tokenUsed}/${this.tokenBudget})`);
   }
 
-  // Estimate token count for a string (rough: 4 chars per token)
   static estimateTokens(text: string): number {
     return Math.ceil(text.length / 4);
   }
 
-  // Truncate messages to fit within budget
   static truncateMessages(messages: LLMMessage[], maxTokens: number): LLMMessage[] {
     let total = 0;
     const result: LLMMessage[] = [];
-    // Always keep system message
     for (const msg of messages) {
       if (msg.role === "system") {
         result.push(msg);
         total += LLMClient.estimateTokens(msg.content);
       }
     }
-    // Add other messages from newest to oldest until budget exceeded
     const others = messages.filter(m => m.role !== "system").reverse();
     for (const msg of others) {
       const tokens = LLMClient.estimateTokens(msg.content);
       if (total + tokens > maxTokens) {
-        // Truncate content
         const remaining = maxTokens - total;
         const chars = remaining * 4;
         result.push({ ...msg, content: msg.content.slice(0, chars) + "\n...[truncated]" });
@@ -172,7 +155,7 @@ export class LLMClient {
     finishReason: string;
   }> {
     if (!this.isConfigured()) {
-      throw new Error("LLM not configured. Set LLM_API_URL and LLM_API_KEY");
+      throw new Error("LLM not configured. Set LLM_API_KEY and LLM_BASE_URL");
     }
 
     const body: any = {
@@ -215,10 +198,8 @@ export class LLMClient {
       const choice = data.choices?.[0];
       if (!choice) throw new Error("LLM returned empty response");
 
-      // Track token usage
       this.trackUsage(data.usage);
 
-      // Check if we exceeded budget
       if (!this.hasBudget()) {
         console.warn(`[LLM] Token budget exhausted (${this.tokenUsed}/${this.tokenBudget}). Consider increasing LLM_TOKEN_BUDGET.`);
       }
@@ -239,7 +220,6 @@ export class LLMClient {
     }
   }
 
-  // Build system prompt for an agent role
   static getSystemPrompt(agentName: string, role: string, tools: string[]): string {
     return `You are ${agentName}, an autonomous AI agent with role: ${role}.
 
