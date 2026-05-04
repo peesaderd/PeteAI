@@ -7,6 +7,7 @@ import { handleToolCall } from '../mcp/server.js';
 import { createRegistryRouter } from './registry.js';
 import { createProxyRouter } from '../gateway/proxy.js';
 import { createUIRouter } from "../ui/index.js";
+import { createLLMProvidersRouter, seedDefaultLLMProviders } from "../settings/llmProviders.js";
 
 export function createRouter() {
   const router = Router();
@@ -67,6 +68,13 @@ export function createRouter() {
   router.use('/proxy', proxyRouter);
   const uiRouter = createUIRouter();
   router.use("/ui", uiRouter);
+
+  // Mount LLM Providers settings API
+  const llmProvidersRouter = createLLMProvidersRouter();
+  router.use("/settings/llm-providers", llmProvidersRouter);
+
+  // Seed default LLM providers for tenant
+  try { seedDefaultLLMProviders("t_001"); } catch { /* ignore */ }
 
     // ---- Finance & Accounting REST API ----
 

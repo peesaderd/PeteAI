@@ -762,6 +762,25 @@ function initializeSchema(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_ai_providers_tenant ON ai_providers(tenant_id);
+    -- ============================================================
+    -- LLM PROVIDERS (Settings)
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS llm_providers (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('openai','anthropic','deepseek','ollama','openrouter')),
+      endpoint TEXT NOT NULL DEFAULT '',
+      api_key_encrypted TEXT NOT NULL DEFAULT '',
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(tenant_id, name)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_llm_providers_tenant ON llm_providers(tenant_id);
+
 
     -- ============================================================
     -- MARKETING MODULE

@@ -34,7 +34,7 @@ const NAV_ITEMS = [
   { path: '/marketing', icon: Megaphone, label: 'Marketing' },
   { path: '/channels', icon: Globe, label: 'Channels' },
   { path: '/knowledge-base', icon: BookOpen, label: 'Knowledge Base' },
-  { path: '/ai-providers', icon: Bot, label: 'AI Providers' },
+  { path: '/llm', icon: Bot, label: 'LLM' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
@@ -118,7 +118,7 @@ export default function App() {
             <Route path="/marketing" element={<Marketing />} />
             <Route path="/channels" element={<Channels />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
-            <Route path="/ai-providers" element={<AIProviderSettings />} />
+            <Route path="/llm" element={<LLMProviderSettings />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </div>
