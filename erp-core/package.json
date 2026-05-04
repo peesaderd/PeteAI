@@ -18,5 +18,8 @@
     "dev:web": "npm run dev -w packages/web",
     "start:server": "npm run start -w packages/server",
     "start:kb": "npm run start -w packages/knowledge-base"
+  },
+  "dependencies": {
+    "ioredis": "^5.10.1"
   }
 }

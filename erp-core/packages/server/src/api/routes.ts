@@ -6,6 +6,7 @@ import { RBACManager } from '../rbac/index.js';
 import { handleToolCall } from '../mcp/server.js';
 import { createRegistryRouter } from './registry.js';
 import { createProxyRouter } from '../gateway/proxy.js';
+import { createUIRouter } from "../ui/index.js";
 
 export function createRouter() {
   const router = Router();
@@ -64,6 +65,8 @@ export function createRouter() {
 // Mount Agency Team API proxy
   router.use('/agency', proxyRouter);
   router.use('/proxy', proxyRouter);
+  const uiRouter = createUIRouter();
+  router.use("/ui", uiRouter);
 
     // ---- Finance & Accounting REST API ----
 
