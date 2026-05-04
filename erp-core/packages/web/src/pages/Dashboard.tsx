@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { LayoutDashboard, Package, ShoppingCart, Users, DollarSign, TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Factory, Truck, BarChart3 } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Users, DollarSign, TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Factory, Truck, BarChart3, Activity } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHeader, StatCard, Skeleton } from '../components/ui';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler } from 'chart.js';
+import { Line, Bar } from 'react-chartjs-2';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<any>(null);
@@ -10,6 +14,9 @@ export default function Dashboard() {
   const [inventoryReport, setInventoryReport] = useState<any>(null);
   const [productionOrders, setProductionOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [todaySales, setTodaySales] = useState<number>(0);
+  const [pendingOrdersCount, setPendingOrdersCount] = useState<number>(0);
+  const [lowStockCount, setLowStockCount] = useState<number>(0);
 
   const load = async () => {
     setLoading(true);
@@ -21,15 +28,144 @@ export default function Dashboard() {
         api.dashboard.inventoryReport(),
         api.dashboard.productionOrders(),
       ]);
-      setSummary(JSON.parse(s.content[0].text));
-      setSalesTrends(JSON.parse(st.content[0].text));
-      setTopProducts(JSON.parse(tp.content[0].text));
-      setInventoryReport(JSON.parse(inv.content[0].text));
-      setProductionOrders(JSON.parse(prod.content[0].text));
+      const summaryData = JSON.parse(s.content[0].text);
+      const trendsData = JSON.parse(st.content[0].text);
+      const productsData = JSON.parse(tp.content[0].text);
+      const inventoryData = JSON.parse(inv.content[0].text);
+      const prodData = JSON.parse(prod.content[0].text);
+
+      setSummary(summaryData);
+      setSalesTrends(trendsData);
+      setTopProducts(productsData);
+      setInventoryReport(inventoryData);
+      setProductionOrders(prodData);
+
+      // Calculate real-time KPIs
+      const today = new Date().toISOString().slice(0, 10);
+      const todaySalesVal = (Array.isArray(trendsData) ? trendsData : [])
+        .filter((d: any) => (d.date || d.day || '').startsWith(today.slice(0, 7)))
+        .reduce((sum: number, d: any) => sum + (d.amount || d.revenue || 0), 0);
+      setTodaySales(todaySalesVal);
+
+      const pending = (Array.isArray(prodData) ? prodData : [])
+        .filter((o: any) => o.status === 'pending' || o.status === 'in_progress').length;
+      setPendingOrdersCount(pending);
+
+      const lowStock = (inventoryData?.lowStockItems || []).length;
+      setLowStockCount(lowStock);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
+
   useEffect(() => { load(); }, []);
+
+  // Auto-refresh every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(load, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const totalRevenue = summary?.totalRevenue || 0;
+  const totalOrders = summary?.totalOrders || 0;
+  const totalCustomers = summary?.totalCustomers || 0;
+  const totalProducts = summary?.totalProducts || 0;
+  const revenueTrend = summary?.revenueTrend || 0;
+  const orderTrend = summary?.orderTrend || 0;
+
+  const lowStockItems = inventoryReport?.lowStockItems || [];
+  const pendingOrders = productionOrders.filter((o: any) => o.status === 'pending' || o.status === 'in_progress');
+
+  // Chart data for Sales Trends
+  const salesChartData = {
+    labels: Array.isArray(salesTrends) ? salesTrends.map((d: any) => {
+      const date = new Date(d.date || d.day || Date.now());
+      return `${date.getDate()}/${date.getMonth() + 1}`;
+    }) : [],
+    datasets: [
+      {
+        label: 'Revenue',
+        data: Array.isArray(salesTrends) ? salesTrends.map((d: any) => d.amount || d.revenue || 0) : [],
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 3,
+        pointHoverRadius: 6,
+      },
+    ],
+  };
+
+  const salesChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (ctx: any) => `$${ctx.parsed.y.toLocaleString()}`,
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { font: { size: 10 }, maxTicksLimit: 10 },
+      },
+      y: {
+        grid: { color: 'rgba(0,0,0,0.05)' },
+        ticks: {
+          font: { size: 10 },
+          callback: (v: any) => `$${(v / 1000).toFixed(0)}k`,
+        },
+      },
+    },
+  };
+
+  // Chart data for Top Products
+  const topProductsData = {
+    labels: (Array.isArray(topProducts) ? topProducts.slice(0, 8) : []).map((p: any) => {
+      const name = p.name || p.productName || '';
+      return name.length > 12 ? name.slice(0, 12) + '...' : name;
+    }),
+    datasets: [
+      {
+        label: 'Revenue',
+        data: (Array.isArray(topProducts) ? topProducts.slice(0, 8) : []).map((p: any) => p.revenue || p.totalRevenue || 0),
+        backgroundColor: [
+          '#3b82f6', '#7c3aed', '#059669', '#d97706',
+          '#dc2626', '#0891b2', '#db2777', '#1e293b',
+        ],
+        borderRadius: 4,
+      },
+    ],
+  };
+
+  const topProductsOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    indexAxis: 'y' as const,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (ctx: any) => `$${ctx.parsed.x.toLocaleString()}`,
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(0,0,0,0.05)' },
+        ticks: {
+          font: { size: 10 },
+          callback: (v: any) => `$${(v / 1000).toFixed(0)}k`,
+        },
+      },
+      y: {
+        grid: { display: false },
+        ticks: { font: { size: 10 } },
+      },
+    },
+  };
 
   if (loading) {
     return (
@@ -46,20 +182,16 @@ export default function Dashboard() {
     );
   }
 
-  const totalRevenue = summary?.totalRevenue || 0;
-  const totalOrders = summary?.totalOrders || 0;
-  const totalCustomers = summary?.totalCustomers || 0;
-  const totalProducts = summary?.totalProducts || 0;
-  const revenueTrend = summary?.revenueTrend || 0;
-  const orderTrend = summary?.orderTrend || 0;
-
-  const lowStockItems = inventoryReport?.lowStockItems || [];
-  const pendingOrders = productionOrders.filter((o: any) => o.status === 'pending' || o.status === 'in_progress');
-
   return (
     <div>
       <PageHeader title="Dashboard" description="Real-time business overview">
-        <button onClick={load} className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50"><RefreshCw size={18} /></button>
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <Activity size={14} className="text-green-500" />
+          <span>Auto-refresh every 60s</span>
+        </div>
+        <button onClick={load} className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+          <RefreshCw size={18} />
+        </button>
       </PageHeader>
 
       {/* KPI Cards */}
@@ -70,48 +202,65 @@ export default function Dashboard() {
         <StatCard icon={Package} label="Products" value={totalProducts.toString()} color="bg-orange-500" sub="Active SKUs" />
       </div>
 
+      {/* Real-time KPI Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
+          <div className="p-3 rounded-lg bg-green-100">
+            <DollarSign size={24} className="text-green-600" />
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-gray-900">${todaySales.toLocaleString()}</div>
+            <div className="text-sm text-gray-500">Today's Sales</div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
+          <div className="p-3 rounded-lg bg-blue-100">
+            <ShoppingCart size={24} className="text-blue-600" />
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-gray-900">{pendingOrdersCount}</div>
+            <div className="text-sm text-gray-500">Pending Orders</div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
+          <div className="p-3 rounded-lg bg-red-100">
+            <AlertTriangle size={24} className="text-red-600" />
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-gray-900">{lowStockCount}</div>
+            <div className="text-sm text-gray-500">Low Stock Items</div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         {/* Sales Trends Chart */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-lg font-semibold mb-4">Sales Trends (30 days)</h3>
-          {salesTrends?.length > 0 ? (
-            <div className="h-64 flex items-end gap-2">
-              {salesTrends.map((d: any, i: number) => {
-                const max = Math.max(...salesTrends.map((x: any) => x.amount || x.revenue || 0));
-                const h = max > 0 ? ((d.amount || d.revenue || 0) / max) * 100 : 0;
-                return (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                    <span className="text-xs text-gray-400">${(d.amount || d.revenue || 0).toFixed(0)}</span>
-                    <div className="w-full bg-blue-100 rounded-t" style={{ height: `${h}%` }}>
-                      <div className="bg-blue-500 rounded-t w-full h-full opacity-80 hover:opacity-100 transition-opacity" />
-                    </div>
-                    <span className="text-xs text-gray-400">{new Date(d.date || d.day || Date.now()).getDate()}</span>
-                  </div>
-                );
-              })}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Sales Trends (30 days)</h3>
+            <TrendingUp size={20} className="text-blue-500" />
+          </div>
+          {Array.isArray(salesTrends) && salesTrends.length > 0 ? (
+            <div className="h-72">
+              <Line data={salesChartData} options={salesChartOptions} />
             </div>
           ) : (
-            <div className="h-64 flex items-center justify-center text-gray-400">No sales data available</div>
+            <div className="h-72 flex items-center justify-center text-gray-400">No sales data available</div>
           )}
         </div>
 
         {/* Top Products */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-lg font-semibold mb-4">Top Products</h3>
-          {topProducts.length > 0 ? (
-            <div className="space-y-3">
-              {topProducts.slice(0, 8).map((p: any, i: number) => (
-                <div key={i} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-medium text-gray-400 w-5">#{i + 1}</span>
-                    <span className="text-sm text-gray-700 truncate max-w-[140px]">{p.name || p.productName}</span>
-                  </div>
-                  <span className="text-sm font-medium">${(p.revenue || p.totalRevenue || 0).toFixed(0)}</span>
-                </div>
-              ))}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Top Products</h3>
+            <BarChart3 size={20} className="text-purple-500" />
+          </div>
+          {Array.isArray(topProducts) && topProducts.length > 0 ? (
+            <div className="h-72">
+              <Bar data={topProductsData} options={topProductsOptions} />
             </div>
           ) : (
-            <div className="h-64 flex items-center justify-center text-gray-400">No product data</div>
+            <div className="h-72 flex items-center justify-center text-gray-400">No product data</div>
           )}
         </div>
       </div>
@@ -120,44 +269,50 @@ export default function Dashboard() {
         {/* Low Stock Alerts */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">Low Stock Alerts</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Low Stock Alerts</h3>
             <AlertTriangle size={20} className="text-orange-500" />
           </div>
           {lowStockItems.length > 0 ? (
             <div className="space-y-2">
               {lowStockItems.slice(0, 6).map((item: any, i: number) => (
-                <div key={i} className="flex items-center justify-between p-2 bg-red-50 rounded-lg">
-                  <span className="text-sm font-medium">{item.productName || item.name}</span>
+                <div key={i} className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Package size={16} className="text-red-500" />
+                    <span className="text-sm font-medium text-gray-900">{item.productName || item.name}</span>
+                  </div>
                   <span className="text-sm font-bold text-red-600">{item.quantity || item.stock || 0} left</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="h-32 flex items-center justify-center text-gray-400">All stock levels are healthy</div>
+            <div className="h-40 flex items-center justify-center text-gray-400">All stock levels are healthy</div>
           )}
         </div>
 
         {/* Production Status */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">Production Orders</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Production Orders</h3>
             <Factory size={20} className="text-blue-500" />
           </div>
           {pendingOrders.length > 0 ? (
             <div className="space-y-2">
               {pendingOrders.slice(0, 6).map((o: any, i: number) => (
-                <div key={i} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                  <div>
-                    <span className="text-sm font-medium">{o.productName || 'Order ' + o.id?.slice(0, 8)}</span>
-                    <span className="text-xs text-gray-400 ml-2">x{o.quantity || 1}</span>
+                <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Truck size={16} className="text-gray-400" />
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">{o.productName || 'Order ' + (o.id?.slice(0, 8) || i)}</span>
+                      <span className="text-xs text-gray-400 ml-2">x{o.quantity || 1}</span>
+                    </div>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
                     o.status === 'in_progress' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>{o.status}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="h-32 flex items-center justify-center text-gray-400">No active production orders</div>
+            <div className="h-40 flex items-center justify-center text-gray-400">No active production orders</div>
           )}
         </div>
       </div>
