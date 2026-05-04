@@ -1,10 +1,16 @@
 import Database from "better-sqlite3";
 import path from "path";
 
+import Database from "better-sqlite3";
+import path from "path";
+
 // ============================================================
 // LLM Client - Agent decision making via OpenAI-compatible API
 // Supports OpenAI, Anthropic, Ollama, OpenHands SDK, etc.
 // Fallback to rule-based decisions when no LLM configured
+
+import Database from "better-sqlite3";
+import path from "path";
 
 // ============================================================
 

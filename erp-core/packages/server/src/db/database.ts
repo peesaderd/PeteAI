@@ -773,6 +773,8 @@ function initializeSchema(db: Database.Database) {
       type TEXT NOT NULL CHECK(type IN ('openai','anthropic','deepseek','ollama','openrouter')),
       endpoint TEXT NOT NULL DEFAULT '',
       api_key_encrypted TEXT NOT NULL DEFAULT '',
+      models TEXT NOT NULL DEFAULT '[]',
+      selected_model TEXT NOT NULL DEFAULT '',
       is_default INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
