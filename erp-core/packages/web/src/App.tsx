@@ -19,7 +19,7 @@ import Channels from './pages/Channels';
 import Marketing from './pages/Marketing';
 import KnowledgeBase from './pages/KnowledgeBase';
 import SettingsPage from './pages/Settings';
-import AIProviderSettings from './pages/AIProviderSettings';
+import LLMProviderSettings from './pages/LLMProviderSettings';
 
 const NAV_ITEMS = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
