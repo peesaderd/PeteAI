@@ -207,7 +207,7 @@ export default function Settings() {
                     <li>เปิด Telegram ค้นหา <code className="bg-gray-200 px-1 rounded">@BotFather</code></li>
                     <li>ส่งคำสั่ง <code className="bg-gray-200 px-1 rounded">/newbot</code> และทำตามขั้นตอน</li>
                     <li>คัดลอก Token ที่ได้มาใส่ด้านบน</li>
-                    <li>ตั้งค่า Webhook URL: <code className="bg-gray-200 px-1 rounded">https://your-domain.com/api/webhooks/telegram</code></li>
+                    <li>ตั้งค่า Webhook URL: <code className="bg-gray-200 px-1 rounded">https://your-domain.com/api/webhooks/telegram</code> <button onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(window.location.origin + "/api/webhooks/telegram"); alert("Copied!"); }} className="text-blue-600 hover:text-blue-800 text-xs ml-1 underline">Copy</button></li>
                   </ol>
                 </div>
                 <div className="flex items-center gap-3">
@@ -224,6 +224,14 @@ export default function Settings() {
                 รับการแจ้งเตือนเมื่อ Fraud Detection พบออเดอร์ต้องสงสัย
               </p>
               <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm font-medium text-blue-800 mb-2">LINE Webhook URL</p>
+                  <p className="text-xs text-blue-600 mb-2">นํา URL นี้ไปใส่ใน LINE Developer Console {"003E"} Messaging API {"003E"} Webhook URL</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-white px-3 py-2 rounded border border-blue-200 text-sm text-blue-900 break-all">{window.location.origin}/api/webhooks/line</code>
+                    <button onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(window.location.origin + "/api/webhooks/line"); alert("Copied!"); }} className="shrink-0 px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">Copy</button>
+                  </div>
+                </div>
                 <Input
                   label="Slack Webhook URL"
                   name="slack_webhook"
