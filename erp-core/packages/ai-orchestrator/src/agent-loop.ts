@@ -1226,8 +1226,8 @@ export class AgentLoop {
         result = await this.llm.chat(llmMessages, toolDefs);
       } catch (err: any) {
         console.error(`[AgentLoop] Chat LLM error:`, err.message);
+        // Don't save non-AI fallback to history — return directly
         const fallback = await this.ruleBasedChatResponse(sessionId, message, agentName);
-        this.memory.addMessage(sessionId, "assistant", fallback);
         return { response: fallback, sessionId, toolResults };
       }
 
@@ -1252,33 +1252,26 @@ export class AgentLoop {
         if (lastAssistantContent && this.isRepeatedResponse(lastAssistantContent, result.content)) {
           console.log(`[AgentLoop] Detected repeated response, breaking loop`);
           this.memory.deleteLastMessage(sessionId);
-          const fallback = "รับทราบครับ มีอะไรให้ช่วยไหมครับ";
-          this.memory.addMessage(sessionId, "assistant", fallback);
-          return { response: fallback, sessionId, toolResults };
+          // Don't save fallback to history
+          return { response: "รับทราบครับ มีอะไรให้ช่วยไหมครับ", sessionId, toolResults };
         }
         lastAssistantContent = result.content;
         this.memory.addMessage(sessionId, "assistant", result.content);
+        return { response: result.content, sessionId, toolResults };
+      }
+
+      // Empty content from LLM — summarize tool results if any, otherwise generic
+      if (toolResults.length > 0) {
+        const summary = this.summarizeToolResults(toolResults);
+        this.memory.addMessage(sessionId, "assistant", summary);
+        return { response: summary, sessionId, toolResults };
       }
 
       break;
     }
 
-    // Get final response
-    const finalMessages = this.memory.getConversationContext(sessionId, 5);
-    let response = "";
-    for (let i = finalMessages.length - 1; i >= 0; i--) {
-      const msg = finalMessages[i];
-      if (msg.role === "assistant" && msg.content) {
-        response = msg.content;
-        break;
-      }
-    }
-
-    if (!response) {
-      response = "รับทราบครับ มีอะไรให้ช่วยไหมครับ";
-    }
-
-    return { response, sessionId, toolResults };
+    // Final fallback — don't save to history
+    return { response: "รับทราบครับ มีอะไรให้ช่วยไหมครับ", sessionId, toolResults };
   }
 
   // ─── Build Chat LLM Messages (manual, avoids buildLLMMessages bugs) ──
@@ -1403,6 +1396,29 @@ export class AgentLoop {
     }
 
     return "รับทราบครับ มีอะไรให้ช่วยเพิ่มเติมไหมครับ";
+  }
+
+  // ─── Summarize Tool Results (when LLM returns empty content) ──
+
+  private summarizeToolResults(results: any[]): string {
+    const nonEmpty = results.filter((r) => {
+      if (!r) return false;
+      if (r.data && Array.isArray(r.data) && r.data.length === 0) return false;
+      if (r.data && typeof r.data === "object" && Object.keys(r.data).length === 0) return false;
+      return true;
+    });
+
+    if (nonEmpty.length === 0) {
+      return "ไม่พบข้อมูลครับ";
+    }
+
+    const lines: string[] = [];
+    for (const r of nonEmpty) {
+      const name = r.tool || r.name || "unknown";
+      const data = r.data ?? r;
+      lines.push(`**${name}**: ${JSON.stringify(data)}`);
+    }
+    return lines.join("\n");
   }
 
   // ─── Finalize Task ─────────────────────────────────────────
