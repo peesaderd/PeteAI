@@ -125,6 +125,47 @@ jobs:
       - name: Validate docker-compose.yml
         run: docker compose config
 
+
+  visual-qa:
+    name: Visual QA
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+      - name: Start staging services
+        run: |
+          docker compose -f docker-compose.staging.yml up -d
+          sleep 10
+      - name: Run Visual QA tests
+        run: npm run test:visual
+        continue-on-error: true
+      - name: Generate Visual QA report
+        run: npm run test:visual:report
+        continue-on-error: true
+      - name: Upload Visual QA report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-qa-report
+          path: visual-qa/reports/
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-qa-screenshots
+          path: visual-qa/screenshots/
+      - name: Stop services
+        if: always()
+        run: docker compose -f docker-compose.staging.yml down
+
   notify-failure:
     name: Notify on Failure
     needs: [unit-tests, e2e-tests, typecheck, docker-build]

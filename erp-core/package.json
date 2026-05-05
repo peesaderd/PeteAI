@@ -15,14 +15,17 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:all": "npm test && npm run test:e2e",
+    "test:all": "npm test && npm run test:visual:all",
     "build": "npm run build -w packages/server && npm run build -w packages/knowledge-base",
     "dev:server": "npm run dev -w packages/server",
     "dev:kb": "npm run dev -w packages/knowledge-base",
     "dev:web": "npm run dev -w packages/web",
     "start:server": "npm run start -w packages/server",
     "start:kb": "npm run start -w packages/knowledge-base",
-    "test:e2e:staging": "PLAYWRIGHT_BASE_URL=http://localhost:54510 playwright test --config=playwright.config.staging.ts"
+    "test:e2e:staging": "PLAYWRIGHT_BASE_URL=http://localhost:54510 playwright test --config=playwright.config.staging.ts",
+    "test:visual": "playwright test --config=playwright.visual.config.ts",
+    "test:visual:report": "tsx visual-qa/generate-report.ts",
+    "test:visual:all": "npm run test:visual && npm run test:visual:report"
   },
   "dependencies": {
     "chart.js": "^4.5.1",
@@ -31,6 +34,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0",
     "vitest": "^4.1.5"
   }
 }
