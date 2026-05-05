@@ -3,6 +3,7 @@
 // Bridges AI agents with ERP Core MCP tools and Agency Team
 // ============================================================
 
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { MemoryStore } from "./memory.js";

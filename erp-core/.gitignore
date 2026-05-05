@@ -4,7 +4,9 @@ dist/
 *.db-journal
 data/
 .env
-.env.*
+.env.local
+.env.production
+.env.development
 backups/
 .DS_Store
 *.log
