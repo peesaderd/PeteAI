@@ -27,23 +27,30 @@ async function main() {
   const toolRouter = new ToolRouter(memory);
   const webhookHandler = new WebhookHandler(toolRouter, memory);
 
-  // Initialize scheduler for routine jobs
+  // Initialize scheduler for routine jobs -- DISABLED by default
   const scheduler = new Scheduler(toolRouter, memory);
-  scheduler.registerDefaultJobs();
+  if (process.env.SCHEDULER_ENABLED === "true") {
+    scheduler.registerDefaultJobs();
+  }
 
   // Initialize LLM client and autonomous agent loop
   const llm = new LLMClient(process.env.ERP_TENANT_ID || "8347c7ab-e4e0-4cc9-ac8d-2683718602b3");
   const agentLoop = new AgentLoop(toolRouter, memory, llm);
   toolRouter.agentLoop = agentLoop;
 
-  // Initialize Redis task queue (event-driven mode)
+  // Initialize Redis task queue (event-driven mode) -- DISABLED by default
   const redisQueue = new RedisTaskQueue();
-  await redisQueue.connect();
-  if (redisQueue.isConnected()) {
-    agentLoop.setRedisQueue(redisQueue);
+  if (process.env.REDIS_QUEUE_ENABLED === "true") {
+    await redisQueue.connect();
+    if (redisQueue.isConnected()) {
+      agentLoop.setRedisQueue(redisQueue);
+    }
   }
 
-  const workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
+  let workflowEngine: any = null;
+  if (process.env.WORKFLOW_ENABLED === "true") {
+    workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
+  }
 
   // ============================================================
 
@@ -87,7 +94,7 @@ async function main() {
       const llmConfigured = !!(process.env.LLM_API_KEY && process.env.LLM_API_KEY !== "sk-your-key-here");
 
       const agentPrompts: Record<string, string> = {
-        erp: "You are an ERP assistant for a company called OpenHands ERP. You have access to real-time ERP data tools. You can query products, orders, inventory, customers, finance, sales, production, and HR data. Use the available tools to fetch live data when answering questions. Always respond in Thai, be concise and helpful.",
+        erp: "คุณคือ ERP Assistant ใช้ภาษาไทย สั้น ตรงประเด็น กฎ: 1. ห้ามเดา/ตอบจากความจำ ต้องใช้ Tools ทุกครั้ง 2. ใช้ Tools ทุกครั้งที่มีคำถามข้อมูล 3. ตอบสั้นๆ กระชับ 4. ถ้า Tool Error บอกตรงๆ ว่าข้อมูลไม่มี",
       };;
 
       if (llmConfigured) {
@@ -763,7 +770,9 @@ app.get("/api/tasks", (req, res) => {
   // ============================================================
 
   // Start scheduler and agent loop
-  scheduler.start();
+  if (process.env.SCHEDULER_ENABLED === "true") {
+    scheduler.start();
+  }
   if (process.env.AGENT_LOOP_ENABLED === "true") {
     agentLoop.start();
   }
