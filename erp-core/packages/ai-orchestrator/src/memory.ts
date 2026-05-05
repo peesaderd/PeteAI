@@ -206,9 +206,10 @@ export class MemoryStore {
 
   getConversationContext(sessionId: string, maxMessages = 20): Message[] {
     // Use DESC + reverse to get the LAST N messages (not the first N)
+    // Include id as tiebreaker to guarantee deterministic order for same-timestamp messages
     let sql = "SELECT * FROM messages WHERE session_id = ?";
     const params: any[] = [sessionId];
-    sql += " ORDER BY created_at DESC LIMIT ?";
+    sql += " ORDER BY created_at DESC, id ASC LIMIT ?";
     params.push(maxMessages);
     const rows = this.d.prepare(sql).all(...params) as any[];
     return rows.reverse().map((r) => this.rowToMessage(r));
