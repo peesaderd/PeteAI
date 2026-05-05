@@ -84,7 +84,7 @@ export async function visualDiff(
   name: string,
   options?: { threshold?: number }
 ): Promise<{ pass: boolean; diffPixels: number; diffPercent: number }> {
-  const { pixelmatch } = await import("pixelmatch");
+  const pixelmatch = (await import("pixelmatch")).default;
   const { PNG } = await import("pngjs");
   const fs = await import("fs/promises");
   const path = await import("path");

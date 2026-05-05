@@ -5,8 +5,8 @@
  * Includes screenshot diffs, style assertion results, and theme checks.
  */
 
-import fs from "fs/promises";
-import path from "path";
+import * as fs from "fs/promises";
+import * as path from "path";
 
 interface TestResult {
   suite: string;
@@ -51,9 +51,10 @@ export async function generateVisualQaReport(
     results,
   };
 
-  const passRate = results.length > 0
-    ? ((passed / results.length) * 100).toFixed(1)
-    : "0";
+  const passRateNum = results.length > 0
+    ? (passed / results.length) * 100
+    : 0;
+  const passRate = passRateNum.toFixed(1);
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -100,7 +101,7 @@ export async function generateVisualQaReport(
   <h1>Visual QA Report</h1>
   <p class="timestamp">Generated: ${report.timestamp} | Duration: ${(totalDuration / 1000).toFixed(1)}s</p>
   <div class="pass-rate">
-    <div class="rate ${passRate >= 90 ? "" : passRate >= 70 ? "warning" : "danger"}">${passRate}%</div>
+    <div class="rate ${passRateNum >= 90 ? "" : passRateNum >= 70 ? "warning" : "danger"}">${passRate}%</div>
     <div style="font-size:1rem;color:#8b8fa3;">pass rate</div>
   </div>
   <div class="summary">
