@@ -60,7 +60,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, any>;
-  category: "erp" | "agency" | "memory" | "orchestrator";
+  category: "erp" | "agency" | "memory" | "orchestrator" | "browser";
 }
 
 export interface ToolResult {
@@ -745,6 +745,102 @@ export class ToolRouter {
       },
       category: "orchestrator",
     });
+    // Browser automation tools (Playwright)
+    this.registerTool({
+      name: "browser_navigate",
+      description: "Navigate to a URL in the browser. Returns page title and content preview.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "The URL to navigate to" },
+        },
+        required: ["url"],
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_click",
+      description: "Click an element on the page using a CSS selector.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          selector: { type: "string", description: "CSS selector for the element to click" },
+        },
+        required: ["selector"],
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_fill",
+      description: "Fill an input field with text.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          selector: { type: "string", description: "CSS selector for the input field" },
+          value: { type: "string", description: "Text to type into the field" },
+        },
+        required: ["selector", "value"],
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_screenshot",
+      description: "Take a screenshot of the current page. Returns base64 PNG.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          fullPage: { type: "boolean", description: "Capture full page (default false)" },
+        },
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_read",
+      description: "Read the text content of the current page.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_evaluate",
+      description: "Run JavaScript code in the browser page.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          script: { type: "string", description: "JavaScript code to execute" },
+        },
+        required: ["script"],
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_wait",
+      description: "Wait for a specified time in milliseconds.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ms: { type: "number", description: "Milliseconds to wait" },
+        },
+        required: ["ms"],
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "github_create_issue",
+      description: "Create a GitHub issue in the repository. Uses GitHub API.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Issue title" },
+          body: { type: "string", description: "Issue body/description" },
+          labels: { type: "array", items: { type: "string" }, description: "Optional labels" },
+        },
+        required: ["title", "body"],
+      },
+      category: "browser",
+    });
   }
 
   registerTool(tool: ToolDefinition): void {
@@ -776,8 +872,82 @@ export class ToolRouter {
           return await this.executeOrchestratorTool(toolName, args);
         case "erp":
           return await this.executeErpSqlTool(toolName, args);
+        case "browser":
+          return await this.executeBrowserTool(toolName, args);
         default:
           return { success: false, error: `Unknown category: ${tool.category}` };
+      }
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  private async executeBrowserTool(
+    toolName: string,
+    args: any
+  ): Promise<ToolResult> {
+    // Lazy-import BrowserUse to avoid startup cost when not used
+    const { BrowserUse } = await import("./browser-use.js");
+    const browser = new BrowserUse();
+    try {
+      await browser.init();
+      switch (toolName) {
+        case "browser_navigate": {
+          const res = await browser.navigate(args.url);
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_click": {
+          const res = await browser.click(args.selector);
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_fill": {
+          const res = await browser.fill(args.selector, args.value);
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_screenshot": {
+          const res = await browser.screenshot(args.fullPage || false);
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_read": {
+          const res = await browser.readPage();
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_evaluate": {
+          const res = await browser.evaluate(args.script);
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_wait": {
+          const res = await browser.wait(args.ms);
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "github_create_issue": {
+          const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
+          const GITHUB_REPO = process.env.GITHUB_REPO || "peesaderd/PeteAI";
+          if (!GITHUB_TOKEN) {
+            return { success: false, error: "GITHUB_TOKEN not set" };
+          }
+          const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/issues`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${GITHUB_TOKEN}`,
+              "Content-Type": "application/json",
+              "Accept": "application/vnd.github.v3+json",
+            },
+            body: JSON.stringify({
+              title: args.title,
+              body: args.body,
+              labels: args.labels || [],
+            }),
+          });
+          if (!res.ok) {
+            const errText = await res.text();
+            return { success: false, error: `GitHub API error ${res.status}: ${errText}` };
+          }
+          const data = await res.json();
+          return { success: true, data: { issueUrl: data.html_url, issueNumber: data.number } };
+        }
+        default:
+          return { success: false, error: `Unknown browser tool: ${toolName}` };
       }
     } catch (err: any) {
       return { success: false, error: err.message };
