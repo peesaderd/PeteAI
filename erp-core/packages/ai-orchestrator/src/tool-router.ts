@@ -4,6 +4,8 @@
 // ============================================================
 
 import { MemoryStore } from "./memory.js";
+import { ChatStore } from "./chat-store.js";
+import { v4 as uuid } from "uuid";
 import { execSync } from "child_process";
 import Database from "better-sqlite3";
 import path from "path";
@@ -74,6 +76,7 @@ export class ToolRouter {
   private cache = new TTLCache();
   private siyuanCache = new TTLCache(5 * 60 * 1000); // 5 min TTL for SiYuan docs
   private memory: MemoryStore;
+  private chatStore: ChatStore;
   private tools: Map<string, ToolDefinition> = new Map();
   private _agentLoop: any = null;
 
@@ -85,8 +88,9 @@ export class ToolRouter {
     return this._agentLoop;
   }
 
-  constructor(memory: MemoryStore) {
+  constructor(memory: MemoryStore, chatStore?: ChatStore) {
     this.memory = memory;
+    this.chatStore = chatStore || new ChatStore();
     this.registerLocalTools();
   }
 
@@ -960,22 +964,21 @@ export class ToolRouter {
   ): Promise<ToolResult> {
     switch (toolName) {
       case "memory_create_session": {
-        const session = this.memory.createSession(
-          args.agentId,
-          args.tenantId,
+        const session = this.chatStore.createSession(
+          args.id || uuid(),
           args.title
         );
         return { success: true, data: session };
       }
       case "memory_get_context": {
-        const messages = this.memory.getConversationContext(
+        const messages = this.chatStore.getContext(
           args.sessionId,
           args.maxMessages || 20
         );
         return { success: true, data: messages };
       }
       case "memory_add_message": {
-        const msg = this.memory.addMessage(
+        const msg = this.chatStore.addMessage(
           args.sessionId,
           args.role,
           args.content

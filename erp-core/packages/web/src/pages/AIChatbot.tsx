@@ -1,135 +1,149 @@
 import React, { useEffect, useState, useRef } from "react";
-import { Bot, Send, User, Cpu, Package, ShoppingCart, AlertTriangle, TrendingUp, RefreshCw, MessageSquare, Plus, Trash2 } from "lucide-react";
+import { Bot, Send, User, MessageSquare, Plus, Trash2 } from "lucide-react";
 
 const API_BASE = "/api";
 
 interface Message {
-  role: "user" | "assistant" | "system";
+  id: string;
+  role: "user" | "assistant" | "system" | "tool";
   content: string;
-  toolResults?: any[];
-  timestamp: number;
+  toolCalls?: string;
+  toolResults?: string;
+  createdAt: number;
 }
 
 interface Session {
   id: string;
   title: string;
-  messages: Message[];
   createdAt: number;
-}
-
-const SYSTEM_PROMPT = "You are an AI ERP assistant...";
-
-function generateId() {
-  return "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+  updatedAt: number;
 }
 
 export default function AIChatbot() {
-  const [sessions, setSessions] = useState<Session[]>(() => {
-    try {
-      const saved = localStorage.getItem("erp_chat_sessions");
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Load sessions on mount
   useEffect(() => {
-    localStorage.setItem("erp_chat_sessions", JSON.stringify(sessions));
-  }, [sessions]);
+    fetchSessions();
+  }, []);
+
+  // Load messages when active session changes
+  useEffect(() => {
+    if (activeSessionId) {
+      fetchMessages(activeSessionId);
+    } else {
+      setMessages([]);
+    }
+  }, [activeSessionId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeSessionId, sessions]);
+  }, [messages, loading]);
 
-  const activeSession = sessions.find(s => s.id === activeSessionId) || null;
-
-  const createNewSession = () => {
-    const id = generateId();
-    const newSession = { id, title: "New Chat", messages: [{ role: "system", content: SYSTEM_PROMPT, timestamp: Date.now() }], createdAt: Date.now() };
-    setSessions(prev => [newSession, ...prev]);
-    setActiveSessionId(id);
+  const fetchSessions = async () => {
+    try {
+      const res = await fetch(API_BASE + "/chat/sessions");
+      if (res.ok) {
+        const data = await res.json();
+        setSessions(data);
+      }
+    } catch {}
   };
 
-  const deleteSession = (id: string) => {
-    setSessions(prev => prev.filter(s => s.id !== id));
-    if (activeSessionId === id) setActiveSessionId(null);
+  const fetchMessages = async (sessionId: string) => {
+    try {
+      const res = await fetch(API_BASE + "/chat/sessions/" + sessionId + "/messages");
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data);
+      }
+    } catch {}
+  };
+
+  const createNewSession = async () => {
+    try {
+      const res = await fetch(API_BASE + "/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Hello", agent: "erp", language: "th" }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setActiveSessionId(data.sessionId);
+        fetchSessions();
+      }
+    } catch {}
+  };
+
+  const deleteSession = async (id: string) => {
+    try {
+      await fetch(API_BASE + "/chat/sessions/" + id, { method: "DELETE" });
+      if (activeSessionId === id) {
+        setActiveSessionId(null);
+        setMessages([]);
+      }
+      fetchSessions();
+    } catch {}
   };
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
-    let session = activeSession;
-    if (!session) {
-      const id = generateId();
-      session = { id, title: input.slice(0, 50), messages: [{ role: "system", content: SYSTEM_PROMPT, timestamp: Date.now() }], createdAt: Date.now() };
-      setSessions(prev => [session, ...prev]);
-      setActiveSessionId(id);
-    }
-    const userMsg = { role: "user", content: input, timestamp: Date.now() };
-    const updatedMessages = [...session.messages, userMsg];
-    setSessions(prev => prev.map(s => s.id === session.id ? { ...s, messages: updatedMessages, title: s.messages.length <= 1 ? input.slice(0, 50) : s.title } : s));
+    const text = input;
     setInput("");
     setLoading(true);
+
+    // Optimistically add user message
+    const tempUserMsg: Message = {
+      id: "temp_" + Date.now(),
+      role: "user",
+      content: text,
+      createdAt: Date.now(),
+    };
+    setMessages(prev => [...prev, tempUserMsg]);
+
     try {
-      const response = await fetch(API_BASE + "/orchestrator/chat", {
+      const res = await fetch(API_BASE + "/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: session.id, message: input, agent: "rd", language: "th" }),
+        body: JSON.stringify({
+          sessionId: activeSessionId,
+          message: text,
+          agent: "erp",
+          language: "th",
+        }),
       });
-      if (response.ok) {
-        const data = await response.json();
-        const assistantMsg = { role: "assistant", content: data.response || "...", toolResults: data.toolResults || [], timestamp: Date.now() };
-        setSessions(prev => prev.map(s => s.id === session.id ? { ...s, messages: [...updatedMessages, assistantMsg] } : s));
-      } else throw new Error("Orchestrator unavailable");
-    } catch {
-      try {
-        const mcpResponse = await fetch(API_BASE + "/mcp", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tool: "ai_chat", args: { message: input, sessionId: session.id, language: "th" } }),
-        });
-        if (mcpResponse.ok) {
-          const data = await mcpResponse.json();
-          const text = data.content?.[0]?.text || "...";
-          const parsed = JSON.parse(text);
-          const assistantMsg = { role: "assistant", content: parsed.response || parsed.message || text, toolResults: parsed.toolResults || [], timestamp: Date.now() };
-          setSessions(prev => prev.map(s => s.id === session.id ? { ...s, messages: [...updatedMessages, assistantMsg] } : s));
-        } else throw new Error("MCP unavailable");
-      } catch {
-        const msg = input.toLowerCase();
-        let response = "";
-        if (msg.includes("สวัสดี") || msg.includes("hello")) {
-          response = "สวัสดีครับ! ผมคือ AI Assistant ของระบบ ERP ยินดีให้บริการครับ 🙏\n\nสอบถามเกี่ยวกับ: สินค้า, ออเดอร์, สต็อก, ยอดขาย, พยากรณ์, ตรวจจับความผิดปกติ";
-        } else if (msg.includes("สินค้า") || msg.includes("product")) {
-          try {
-            const res = await fetch(API_BASE + "/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tool: "list_products", args: { tenantId: "t_001", limit: 10 } }) });
-            const data = await res.json();
-            const products = JSON.parse(data.content?.[0]?.text || "[]");
-            if (products.length > 0) response = "สินค้าที่มีอยู่ในระบบ:\n" + products.slice(0, 10).map((p, i) => (i+1) + ". " + p.name + " - $" + p.price + " (คงเหลือ " + (p.quantity || 0) + ")").join("\n");
-            else response = "ไม่พบข้อมูลสินค้า";
-          } catch { response = "ไม่สามารถดึงข้อมูลสินค้าได้"; }
-        } else if (msg.includes("ออเดอร์") || msg.includes("order")) {
-          try {
-            const res = await fetch(API_BASE + "/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tool: "list_orders", args: { tenantId: "t_001", limit: 10 } }) });
-            const data = await res.json();
-            const orders = JSON.parse(data.content?.[0]?.text || "[]");
-            if (orders.length > 0) response = "ออเดอร์ล่าสุด:\n" + orders.slice(0, 10).map((o, i) => (i+1) + ". " + (o.order_number || o.id) + " - $" + o.total + " (" + o.status + ")").join("\n");
-            else response = "ไม่พบข้อมูลออเดอร์";
-          } catch { response = "ไม่สามารถดึงข้อมูลออเดอร์ได้"; }
-        } else {
-          response = "ขออภัยครับ ผมไม่เข้าใจคำถาม กรุณาลองถามใหม่ครับ";
+      if (res.ok) {
+        const data = await res.json();
+        // Set active session if new
+        if (!activeSessionId && data.sessionId) {
+          setActiveSessionId(data.sessionId);
+          fetchSessions();
         }
-        const assistantMsg = { role: "assistant", content: response, timestamp: Date.now() };
-        setSessions(prev => prev.map(s => s.id === session.id ? { ...s, messages: [...updatedMessages, assistantMsg] } : s));
+        // Reload messages from server
+        const sid = data.sessionId || activeSessionId;
+        if (sid) {
+          fetchMessages(sid);
+        }
+      } else {
+        throw new Error("API error");
       }
+    } catch {
+      // Remove temp message on failure
+      setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id));
     }
     setLoading(false);
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
+
+  const activeSession = sessions.find(s => s.id === activeSessionId) || null;
 
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-4">
@@ -144,7 +158,7 @@ export default function AIChatbot() {
             <div key={s.id} className={"group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm " + (activeSessionId === s.id ? "bg-blue-50 text-blue-700" : "text-gray-600 hover:bg-gray-50")}
               onClick={() => setActiveSessionId(s.id)}>
               <MessageSquare size={14} />
-              <span className="truncate flex-1">{s.title}</span>
+              <span className="truncate flex-1">{s.title || "New Chat"}</span>
               <button onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }} className="opacity-0 group-hover:opacity-100 hover:text-red-500"><Trash2 size={12} /></button>
             </div>
           ))}
@@ -154,8 +168,8 @@ export default function AIChatbot() {
         {activeSession ? (
           <>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {activeSession.messages.filter(m => m.role !== "system").map((msg, i) => (
-                <div key={i} className={"flex gap-3 " + (msg.role === "user" ? "justify-end" : "")}>
+              {messages.filter(m => m.role !== "system").map((msg) => (
+                <div key={msg.id} className={"flex gap-3 " + (msg.role === "user" ? "justify-end" : "")}>
                   {msg.role === "assistant" && <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center"><Bot size={16} className="text-blue-600" /></div>}
                   <div className={"max-w-[75%] " + (msg.role === "user" ? "order-1" : "")}>
                     <div className={"rounded-xl px-4 py-2.5 text-sm " + (msg.role === "user" ? "bg-blue-600 text-white" : "bg-gray-50 text-gray-800 border border-gray-100")}>

@@ -7,6 +7,7 @@
 
 import { ToolRouter } from "./tool-router.js";
 import { MemoryStore } from "./memory.js";
+import { ChatStore } from "./chat-store.js";
 import { LLMClient, LLMMessage, LLMToolDef } from "./llm.js";
 import { PersistenceManager, type PersistedState, type PersistedEvent } from "./persistence.js";
 import { RedisTaskQueue } from "./redis-queue.js";
@@ -200,6 +201,7 @@ export class AgentLoop {
   private activeTasks: Map<string, ActiveTask> = new Map();
   private toolRouter: ToolRouter;
   private memory: MemoryStore;
+  private chatStore: ChatStore;
   private llm: LLMClient;
   private persistence: PersistenceManager;
   private delegations: Map<string, Delegation> = new Map();
@@ -215,6 +217,7 @@ export class AgentLoop {
   constructor(
     toolRouter: ToolRouter,
     memory: MemoryStore,
+    chatStore: ChatStore,
     llm: LLMClient,
       persistence?: PersistenceManager,
     pollIntervalMs = 15000,
@@ -222,6 +225,7 @@ export class AgentLoop {
   ) {
     this.toolRouter = toolRouter;
     this.memory = memory;
+    this.chatStore = chatStore;
     this.llm = llm;
       this.persistence = persistence || new PersistenceManager("./.conversations");
     this.pollInterval = pollIntervalMs;
@@ -398,7 +402,7 @@ export class AgentLoop {
     }
 
     // Get conversation context
-    const messages = this.memory.getConversationContext(task.sessionId, 30);
+    const messages = this.chatStore.getContext(task.sessionId, 30);
     const lastMsg = messages[messages.length - 1];
 
     // If last message was a tool result, analyze it with LLM or rules
@@ -448,19 +452,19 @@ export class AgentLoop {
 
       // Store assistant response (with toolCalls if any)
       if (result.toolCalls && result.toolCalls.length > 0) {
-        this.memory.addMessage(task.sessionId, "assistant", result.content || "", {
+        this.chatStore.addMessage(task.sessionId, "assistant", result.content || "", {
           toolCalls: JSON.stringify(result.toolCalls),
         });
         for (const tc of result.toolCalls) {
           const toolResult = await this.toolRouter.executeTool(tc.name, tc.args);
-          this.memory.addMessage(task.sessionId, "tool", JSON.stringify(toolResult), {
+          this.chatStore.addMessage(task.sessionId, "tool", JSON.stringify(toolResult), {
             toolCalls: JSON.stringify([tc]),
             toolResults: JSON.stringify([toolResult]),
           });
         }
         return true; // Continue loop
       } else if (result.content) {
-        this.memory.addMessage(task.sessionId, "assistant", result.content);
+        this.chatStore.addMessage(task.sessionId, "assistant", result.content);
       }
 
       // No tool calls = task complete
@@ -498,7 +502,7 @@ export class AgentLoop {
       for (const action of actions) {
         console.log(`[AgentLoop] ${task.agentName}: → ${action.tool}(${JSON.stringify(action.args)})`);
         const result = await this.toolRouter.executeTool(action.tool, action.args);
-        this.memory.addMessage(task.sessionId, "tool", JSON.stringify(result), {
+        this.chatStore.addMessage(task.sessionId, "tool", JSON.stringify(result), {
           toolCalls: JSON.stringify([{ name: action.tool, args: action.args }]),
           toolResults: JSON.stringify([result]),
         });
@@ -516,7 +520,7 @@ export class AgentLoop {
         // No more actions = complete
         console.log(`[AgentLoop] ${task.agentName}: phase=1 no more actions, completing`);
         const summary = this.generateSummary(task.agentName, task.taskData, messages);
-        this.memory.addMessage(task.sessionId, "assistant", summary);
+        this.chatStore.addMessage(task.sessionId, "assistant", summary);
         task.status = "completed";
         return false;
       }
@@ -525,7 +529,7 @@ export class AgentLoop {
       for (const action of nextActions) {
         console.log(`[AgentLoop] ${task.agentName}: → ${action.tool}(${JSON.stringify(action.args)})`);
         const res = await this.toolRouter.executeTool(action.tool, action.args);
-        this.memory.addMessage(task.sessionId, "tool", JSON.stringify(res), {
+        this.chatStore.addMessage(task.sessionId, "tool", JSON.stringify(res), {
           toolCalls: JSON.stringify([{ name: action.tool, args: action.args }]),
           toolResults: JSON.stringify([res]),
         });
@@ -537,7 +541,7 @@ export class AgentLoop {
     // Phase 2: Summarize and complete
     console.log(`[AgentLoop] ${task.agentName}: phase=2 summarizing and completing task ${task.id}`);
     const summary = this.generateSummary(task.agentName, task.taskData, messages);
-    this.memory.addMessage(task.sessionId, "assistant", summary);
+    this.chatStore.addMessage(task.sessionId, "assistant", summary);
     task.status = "completed";
     return false;
   }
@@ -1084,9 +1088,8 @@ export class AgentLoop {
 
   private async claimTask(task: PendingTask, agentName: string): Promise<void> {
     // Create a session for this task
-    const session = this.memory.createSession(
-      agentName,
-      "erp-core",
+    const session = this.chatStore.createSession(
+      uuidv4(),
       task.title || `Task ${task.id}`
     );
 
@@ -1099,7 +1102,7 @@ export class AgentLoop {
         agent.role,
         allTools
       );
-      this.memory.addMessage(session.id, "system", systemPrompt);
+      this.chatStore.addMessage(session.id, "system", systemPrompt);
     }
 
     // Add task description
@@ -1115,7 +1118,7 @@ export class AgentLoop {
       `Please analyze this task and take appropriate action.`,
     ].join("\n");
 
-    this.memory.addMessage(session.id, "user", taskContent);
+    this.chatStore.addMessage(session.id, "user", taskContent);
 
     // Register active task
     const activeTask: ActiveTask = {
@@ -1194,18 +1197,18 @@ export class AgentLoop {
     const agentName = this.agents.has(agent) ? agent : "erp";
 
     // Ensure session exists
-    let session = this.memory.getSession(sessionId);
+    let session = this.chatStore.getSession(sessionId);
     if (!session) {
-      session = this.memory.createSessionWithId(sessionId, agentName, "chat");
+      session = this.chatStore.createSession(sessionId);
     }
 
     // Add user message to memory
-    this.memory.addMessage(sessionId, "user", message);
+    this.chatStore.addMessage(sessionId, "user", message);
 
     // If LLM not configured, use rule-based fallback
     if (!this.llm.isConfigured()) {
       const response = await this.ruleBasedChatResponse(sessionId, message, agentName);
-      this.memory.addMessage(sessionId, "assistant", response);
+      this.chatStore.addMessage(sessionId, "assistant", response);
       return { response, sessionId, toolResults: [] };
     }
 
@@ -1233,12 +1236,12 @@ export class AgentLoop {
 
       // Handle tool calls
       if (result.toolCalls && result.toolCalls.length > 0) {
-        this.memory.addMessage(sessionId, "assistant", result.content || "", {
+        this.chatStore.addMessage(sessionId, "assistant", result.content || "", {
           toolCalls: JSON.stringify(result.toolCalls),
         });
         for (const tc of result.toolCalls) {
           const toolResult = await this.toolRouter.executeTool(tc.name, tc.args);
-          this.memory.addMessage(sessionId, "tool", JSON.stringify(toolResult), {
+          this.chatStore.addMessage(sessionId, "tool", JSON.stringify(toolResult), {
             toolCalls: JSON.stringify([tc]),
             toolResults: JSON.stringify([toolResult]),
           });
@@ -1251,19 +1254,19 @@ export class AgentLoop {
       if (result.content) {
         if (lastAssistantContent && this.isRepeatedResponse(lastAssistantContent, result.content)) {
           console.log(`[AgentLoop] Detected repeated response, breaking loop`);
-          this.memory.deleteLastMessage(sessionId);
+          this.chatStore.deleteLastMessage(sessionId);
           // Don't save fallback to history
           return { response: "รับทราบครับ มีอะไรให้ช่วยไหมครับ", sessionId, toolResults };
         }
         lastAssistantContent = result.content;
-        this.memory.addMessage(sessionId, "assistant", result.content);
+        this.chatStore.addMessage(sessionId, "assistant", result.content);
         return { response: result.content, sessionId, toolResults };
       }
 
       // Empty content from LLM — summarize tool results if any, otherwise generic
       if (toolResults.length > 0) {
         const summary = this.summarizeToolResults(toolResults);
-        this.memory.addMessage(sessionId, "assistant", summary);
+        this.chatStore.addMessage(sessionId, "assistant", summary);
         return { response: summary, sessionId, toolResults };
       }
 
@@ -1295,7 +1298,7 @@ export class AgentLoop {
     }
 
     // Conversation history (last 20 messages — enough to cover multi-tool sequences)
-    const messages = this.memory.getConversationContext(sessionId, 20);
+    const messages = this.chatStore.getContext(sessionId, 20);
     for (const msg of messages) {
       if (msg.role === "system") continue;
 
@@ -1550,20 +1553,19 @@ export class AgentLoop {
     const events = this.persistence.loadEvents(agentName, conversationId);
 
     // Create a new session in memory
-    const session = this.memory.createSession(
-      agentName,
-      "erp-core",
+    const session = this.chatStore.createSession(
+      uuidv4(),
       state.taskTitle
     );
 
-    // Replay events into memory
+    // Replay events into chat store
     for (const event of events) {
       if (event.role === "system") {
-        this.memory.addMessage(session.id, "system", event.content);
+        this.chatStore.addMessage(session.id, "system", event.content);
       } else if (event.role === "tool") {
-        this.memory.addMessage(session.id, "tool", event.content, event.metadata);
+        this.chatStore.addMessage(session.id, "tool", event.content, event.metadata);
       } else {
-        this.memory.addMessage(session.id, event.role as any, event.content);
+        this.chatStore.addMessage(session.id, event.role as any, event.content);
       }
     }
 

@@ -7,7 +7,7 @@
 import { createClient, type RedisClientType } from "redis";
 import { LLMClient, type LLMMessage } from "./llm.js";
 import { ToolRouter } from "./tool-router.js";
-import { MemoryStore } from "./memory.js";
+import { ChatStore } from "./chat-store.js";
 import { Supervisor } from "./supervisor.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://docker-redis:6379";
@@ -189,7 +189,7 @@ export class ChatWorker {
   private connected = false;
   private llm: LLMClient;
   private toolRouter: ToolRouter;
-  private memory: MemoryStore;
+  private chatStore: ChatStore;
   private supervisor: Supervisor;
   private running = false;
   private workerId: string;
@@ -199,12 +199,12 @@ export class ChatWorker {
 
   constructor(
     toolRouter: ToolRouter,
-    memory: MemoryStore,
+    chatStore: ChatStore,
     supervisor: Supervisor,
   ) {
     this.workerId = `chat-worker-${Date.now()}`;
     this.toolRouter = toolRouter;
-    this.memory = memory;
+    this.chatStore = chatStore;
     this.supervisor = supervisor;
     this.llm = new LLMClient();
   }
@@ -305,12 +305,12 @@ export class ChatWorker {
   }): Promise<void> {
     const { sessionId, message, agent, language } = task;
     // Ensure session exists in memory
-    const existingSession = this.memory.getSession(sessionId);
+    const existingSession = this.chatStore.getSession(sessionId);
     console.log(`[ChatWorker] Session "${sessionId}" exists:`, !!existingSession);
     if (!existingSession) {
       try {
-        this.memory.createSessionWithId(sessionId, agent, "default");
-        const verifySession = this.memory.getSession(sessionId);
+        this.chatStore.createSession(sessionId);
+        const verifySession = this.chatStore.getSession(sessionId);
         console.log(`[ChatWorker] Session "${sessionId}" created:`, !!verifySession);
       } catch (err: any) {
         console.error(`[ChatWorker] Session "${sessionId}" creation failed:`, err.message);
@@ -376,7 +376,7 @@ export class ChatWorker {
     }));
 
     // Get conversation history from memory
-    const history = this.memory.getConversationContext(sessionId, 20);
+    const history = this.chatStore.getContext(sessionId, 20);
 
     // Build messages
     const llmMessages: LLMMessage[] = [
@@ -418,12 +418,12 @@ export class ChatWorker {
 
     // Store in memory
     try {
-      this.memory.addMessage(sessionId, "user", message);
+      this.chatStore.addMessage(sessionId, "user", message);
     } catch (err: any) {
       console.error(`[ChatWorker] addMessage(user) failed:`, err.message);
     }
     try {
-      this.memory.addMessage(sessionId, "assistant", reply, {
+      this.chatStore.addMessage(sessionId, "assistant", reply, {
         toolResults: JSON.stringify(toolResults),
       });
     } catch (err: any) {
@@ -491,12 +491,12 @@ export class ChatWorker {
 
     // Store in memory
     try {
-      this.memory.addMessage(sessionId, "user", message);
+      this.chatStore.addMessage(sessionId, "user", message);
     } catch (err: any) {
       console.error(`[ChatWorker] processWithRules addMessage(user) failed:`, err.message);
     }
     try {
-      this.memory.addMessage(sessionId, "assistant", response, {
+      this.chatStore.addMessage(sessionId, "assistant", response, {
         toolResults: JSON.stringify(toolResults),
       });
     } catch (err: any) {

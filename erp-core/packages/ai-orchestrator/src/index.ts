@@ -6,6 +6,7 @@
 import express from "express";
 import cors from "cors";
 import { MemoryStore } from "./memory.js";
+import { ChatStore } from "./chat-store.js";
 import { ToolRouter } from "./tool-router.js";
 import { WebhookHandler, type WebhookEvent } from "./webhooks.js";
 import { Scheduler } from "./scheduler.js";
@@ -24,7 +25,8 @@ async function main() {
 
   // Initialize core services
   const memory = new MemoryStore();
-  const toolRouter = new ToolRouter(memory);
+  const chatStore = new ChatStore();
+  const toolRouter = new ToolRouter(memory, chatStore);
   const webhookHandler = new WebhookHandler(toolRouter, memory);
 
   // Initialize scheduler for routine jobs -- DISABLED by default
@@ -35,7 +37,7 @@ async function main() {
 
   // Initialize LLM client and autonomous agent loop
   const llm = new LLMClient(process.env.ERP_TENANT_ID || "8347c7ab-e4e0-4cc9-ac8d-2683718602b3");
-  const agentLoop = new AgentLoop(toolRouter, memory, llm);
+  const agentLoop = new AgentLoop(toolRouter, memory, chatStore, llm);
   toolRouter.agentLoop = agentLoop;
 
   // Initialize Redis task queue (event-driven mode) -- DISABLED by default
@@ -73,9 +75,10 @@ async function main() {
   // ============================================================
 
   // ============================================================
-  // R&D Agent Chat API (with LLM support)
+  // Chat API — Sessions & Messages
   // ============================================================
 
+  // POST /api/chat — send a message (chat with AI)
   app.post("/api/chat", async (req, res) => {
     try {
       const { sessionId, message, agent = "erp", language = "th" } = req.body;
@@ -145,7 +148,54 @@ async function main() {
     }
   });
 
-app.post("/api/tools/:toolName", async (req, res) => {
+  // GET /api/chat/sessions — list chat sessions
+  app.get("/api/chat/sessions", (_req, res) => {
+    const { limit } = _req.query;
+    const sessions = chatStore.listSessions(
+      limit ? parseInt(limit as string) : 50
+    );
+    res.json(sessions);
+  });
+
+  // GET /api/chat/sessions/:id — get session
+  app.get("/api/chat/sessions/:id", (req, res) => {
+    const session = chatStore.getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    res.json(session);
+  });
+
+  // DELETE /api/chat/sessions/:id — delete session & messages
+  app.delete("/api/chat/sessions/:id", (req, res) => {
+    chatStore.deleteSession(req.params.id);
+    res.json({ success: true });
+  });
+
+  // GET /api/chat/sessions/:id/messages — get messages
+  app.get("/api/chat/sessions/:id/messages", (req, res) => {
+    const { limit } = req.query;
+    const messages = chatStore.getMessages(
+      req.params.id,
+      limit ? parseInt(limit as string) : 100
+    );
+    res.json(messages);
+  });
+
+  // GET /api/chat/sessions/:id/context — get last N messages for LLM context
+  app.get("/api/chat/sessions/:id/context", (req, res) => {
+    const { maxMessages } = req.query;
+    const context = chatStore.getContext(
+      req.params.id,
+      maxMessages ? parseInt(maxMessages as string) : 20
+    );
+    res.json(context);
+  });
+
+  // ============================================================
+  // Tool Execution API
+  // For AI agents to call tools directly
+  // ============================================================
+
+  app.post("/api/tools/:toolName", async (req, res) => {
     try {
       const { toolName } = req.params;
       const args = req.body.args || req.body;
@@ -156,7 +206,7 @@ app.post("/api/tools/:toolName", async (req, res) => {
     }
   });
 
-app.get("/api/tools", (_req, res) => {
+  app.get("/api/tools", (_req, res) => {
     const category = _req.query.category as string | undefined;
     const tools = toolRouter.getTools(category);
     res.json(
@@ -167,77 +217,6 @@ app.get("/api/tools", (_req, res) => {
         inputSchema: t.inputSchema,
       }))
     );
-  });
-
-  // ============================================================
-  // Session & Memory API
-  // ============================================================
-
-  app.post("/api/sessions", (req, res) => {
-    try {
-      const { agentId, tenantId, title } = req.body;
-      if (!agentId || !tenantId) {
-        return res
-          .status(400)
-          .json({ error: "agentId and tenantId required" });
-      }
-      const session = memory.createSession(agentId, tenantId, title);
-      res.status(201).json(session);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  });
-
-app.get("/api/sessions", (req, res) => {
-    const { agent_id, tenant_id, limit } = req.query;
-    const sessions = memory.listSessions(
-      agent_id as string,
-      tenant_id as string,
-      limit ? parseInt(limit as string) : 50
-    );
-    res.json(sessions);
-  });
-
-app.get("/api/sessions/:id", (req, res) => {
-    const session = memory.getSession(req.params.id);
-    if (!session) return res.status(404).json({ error: "Session not found" });
-    res.json(session);
-  });
-
-app.get("/api/sessions/:id/context", (req, res) => {
-    const { maxMessages } = req.query;
-    const context = memory.getConversationContext(
-      req.params.id,
-      maxMessages ? parseInt(maxMessages as string) : 50
-    );
-    if (!context) return res.status(404).json({ error: "Session not found" });
-    res.json(context);
-  });
-
-app.get("/api/sessions/:id/messages", (req, res) => {
-    const { limit, before } = req.query;
-    const messages = memory.getSessionMessages(
-      req.params.id,
-      limit ? parseInt(limit as string) : 100,
-      before ? parseInt(before as string) : undefined
-    );
-    res.json(messages);
-  });
-
-app.post("/api/sessions/:id/messages", (req, res) => {
-    try {
-      const { role, content, toolCalls, toolResults } = req.body;
-      if (!role || !content) {
-        return res.status(400).json({ error: "role and content required" });
-      }
-      const msg = memory.addMessage(req.params.id, role, content, {
-        toolCalls,
-        toolResults,
-      });
-      res.status(201).json(msg);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
   });
 
   // ============================================================

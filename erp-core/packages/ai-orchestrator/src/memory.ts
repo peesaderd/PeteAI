@@ -1,6 +1,6 @@
 // ============================================================
-// Memory Store - Persistent memory for AI agents
-// Stores conversation history, context, and agent state
+// Memory Store — Agent state & tool cache
+// Chat sessions/messages moved to chat-store.ts
 // ============================================================
 
 import Database from "better-sqlite3";
@@ -26,27 +26,6 @@ export function getOrchestratorDb(): Database.Database {
 
 function initSchema(d: Database.Database) {
   d.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL,
-      tenant_id TEXT NOT NULL,
-      title TEXT,
-      metadata TEXT DEFAULT '{}',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      tool_calls TEXT,
-      tool_results TEXT,
-      created_at INTEGER NOT NULL,
-      FOREIGN KEY (session_id) REFERENCES sessions(id)
-    );
-
     CREATE TABLE IF NOT EXISTS agent_state (
       agent_id TEXT NOT NULL,
       tenant_id TEXT NOT NULL,
@@ -65,31 +44,8 @@ function initSchema(d: Database.Database) {
       expires_at INTEGER NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_mem_session ON messages(session_id);
-    CREATE INDEX IF NOT EXISTS idx_mem_created ON messages(created_at);
-    CREATE INDEX IF NOT EXISTS idx_mem_agent ON sessions(agent_id);
     CREATE INDEX IF NOT EXISTS idx_tool_cache_hash ON tool_cache(tool_name, args_hash);
   `);
-}
-
-export interface Session {
-  id: string;
-  agentId: string;
-  tenantId: string;
-  title: string | null;
-  metadata: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface Message {
-  id: string;
-  sessionId: string;
-  role: "user" | "assistant" | "tool" | "system";
-  content: string;
-  toolCalls?: string;
-  toolResults?: string;
-  createdAt: number;
 }
 
 export class MemoryStore {
@@ -97,122 +53,6 @@ export class MemoryStore {
 
   constructor() {
     this.d = getOrchestratorDb();
-  }
-
-  createSessionWithId(id: string, agentId: string, tenantId: string, title?: string): Session {
-    const now = Math.floor(Date.now() / 1000);
-    this.d
-      .prepare(
-        "INSERT INTO sessions (id, agent_id, tenant_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-      )
-      .run(id, agentId, tenantId, title || null, now, now);
-    return this.getSession(id)!;
-  }
-
-  createSession(agentId: string, tenantId: string, title?: string): Session {
-    const id = uuid();
-    const now = Math.floor(Date.now() / 1000);
-    this.d
-      .prepare(
-        "INSERT INTO sessions (id, agent_id, tenant_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-      )
-      .run(id, agentId, tenantId, title || null, now, now);
-    return this.getSession(id)!;
-  }
-
-  getSession(id: string): Session | null {
-    const row = this.d.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as any;
-    if (!row) return null;
-    return this.rowToSession(row);
-  }
-
-  listSessions(agentId?: string, tenantId?: string, limit = 50): Session[] {
-    let sql = "SELECT * FROM sessions WHERE 1=1";
-    const params: any[] = [];
-    if (agentId) {
-      sql += " AND agent_id = ?";
-      params.push(agentId);
-    }
-    if (tenantId) {
-      sql += " AND tenant_id = ?";
-      params.push(tenantId);
-    }
-    sql += " ORDER BY updated_at DESC LIMIT ?";
-    params.push(limit);
-    return (this.d.prepare(sql).all(...params) as any[]).map((r) =>
-      this.rowToSession(r)
-    );
-  }
-
-  addMessage(
-    sessionId: string,
-    role: Message["role"],
-    content: string,
-    extra?: { toolCalls?: string; toolResults?: string }
-  ): Message {
-    const id = uuid();
-    const now = Math.floor(Date.now() / 1000);
-    this.d
-      .prepare(
-        "INSERT INTO messages (id, session_id, role, content, tool_calls, tool_results, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      )
-      .run(
-        id,
-        sessionId,
-        role,
-        content,
-        extra?.toolCalls || null,
-        extra?.toolResults || null,
-        now
-      );
-    this.d
-      .prepare("UPDATE sessions SET updated_at = ? WHERE id = ?")
-      .run(now, sessionId);
-    return this.getMessage(id)!;
-  }
-
-  deleteLastMessage(sessionId: string): void {
-    const row = this.d
-      .prepare("SELECT id FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 1")
-      .get(sessionId) as any;
-    if (row) {
-      this.d.prepare("DELETE FROM messages WHERE id = ?").run(row.id);
-    }
-  }
-
-  getMessage(id: string): Message | null {
-    const row = this.d.prepare("SELECT * FROM messages WHERE id = ?").get(id) as any;
-    if (!row) return null;
-    return this.rowToMessage(row);
-  }
-
-  getSessionMessages(
-    sessionId: string,
-    limit = 100,
-    before?: number
-  ): Message[] {
-    let sql = "SELECT * FROM messages WHERE session_id = ?";
-    const params: any[] = [sessionId];
-    if (before) {
-      sql += " AND created_at < ?";
-      params.push(before);
-    }
-    sql += " ORDER BY created_at ASC LIMIT ?";
-    params.push(limit);
-    return (this.d.prepare(sql).all(...params) as any[]).map((r) =>
-      this.rowToMessage(r)
-    );
-  }
-
-  getConversationContext(sessionId: string, maxMessages = 20): Message[] {
-    // Use DESC + reverse to get the LAST N messages (not the first N)
-    // Include id as tiebreaker to guarantee deterministic order for same-timestamp messages
-    let sql = "SELECT * FROM messages WHERE session_id = ?";
-    const params: any[] = [sessionId];
-    sql += " ORDER BY created_at DESC, id ASC LIMIT ?";
-    params.push(maxMessages);
-    const rows = this.d.prepare(sql).all(...params) as any[];
-    return rows.reverse().map((r) => this.rowToMessage(r));
   }
 
   setAgentState(
@@ -294,27 +134,4 @@ export class MemoryStore {
     return hash.toString(36);
   }
 
-  private rowToSession(row: any): Session {
-    return {
-      id: row.id,
-      agentId: row.agent_id,
-      tenantId: row.tenant_id,
-      title: row.title,
-      metadata: row.metadata,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  }
-
-  private rowToMessage(row: any): Message {
-    return {
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role,
-      content: row.content,
-      toolCalls: row.tool_calls,
-      toolResults: row.tool_results,
-      createdAt: row.created_at,
-    };
-  }
 }
