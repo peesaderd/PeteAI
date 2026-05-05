@@ -131,8 +131,8 @@ bot.on(message("text"), async (ctx) => {
 // Start (polling mode with 409 retry)
 // ============================================================
 
-const MAX_RETRIES = 10;
-const RETRY_DELAY_MS = 15_000;
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 120_000; // 2 min — wait for old PM2 to exhaust max_restarts
 
 async function wait(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
