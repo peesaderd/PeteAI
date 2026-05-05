@@ -5,6 +5,9 @@
 
 import { MemoryStore } from "./memory.js";
 import { execSync } from "child_process";
+import Database from "better-sqlite3";
+import path from "path";
+import fs from "fs";
 
 const ERP_MCP_URL =
   process.env.ERP_MCP_URL || "http://localhost:54510/api/mcp";
@@ -169,6 +172,110 @@ export class ToolRouter {
       },
       category: "memory",
     });
+    // ============================================================
+    // ERP SQLite Tools (direct database access)
+    // ============================================================
+    this.registerTool({
+      name: "erp_list_products",
+      description: "List products with optional filters (category, status, search). Returns id, name, sku, price, quantity, status.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          category_id: { type: "string", description: "Filter by category ID" },
+          status: { type: "string", enum: ["active", "inactive", "discontinued"], description: "Filter by status" },
+          search: { type: "string", description: "Search by name or SKU" },
+          limit: { type: "number", description: "Max results (default 50)" },
+        },
+      },
+      category: "erp",
+    });
+    this.registerTool({
+      name: "erp_get_product",
+      description: "Get detailed product info by ID including current stock quantity",
+      inputSchema: {
+        type: "object",
+        properties: {
+          product_id: { type: "string", description: "Product ID" },
+        },
+        required: ["product_id"],
+      },
+      category: "erp",
+    });
+    this.registerTool({
+      name: "erp_get_order",
+      description: "Get order details by ID including items, customer info, and status",
+      inputSchema: {
+        type: "object",
+        properties: {
+          order_id: { type: "string", description: "Order ID" },
+        },
+        required: ["order_id"],
+      },
+      category: "erp",
+    });
+    this.registerTool({
+      name: "erp_list_orders",
+      description: "List orders with optional filters (status, customer)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          status: { type: "string", description: "Filter by status (pending, confirmed, shipped, delivered, cancelled)" },
+          customer_name: { type: "string", description: "Filter by customer name" },
+          limit: { type: "number", description: "Max results (default 20)" },
+        },
+      },
+      category: "erp",
+    });
+    this.registerTool({
+      name: "erp_get_inventory",
+      description: "Get inventory status. Returns current stock, low stock threshold, and alerts for items below threshold.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          low_stock_only: { type: "boolean", description: "Show only products below low stock threshold" },
+          product_id: { type: "string", description: "Specific product ID (optional)" },
+        },
+      },
+      category: "erp",
+    });
+    this.registerTool({
+      name: "erp_create_invoice",
+      description: "Create a new invoice for a customer with line items",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tenant_id: { type: "string", description: "Tenant ID" },
+          customer_name: { type: "string", description: "Customer name" },
+          customer_email: { type: "string", description: "Customer email" },
+          items: {
+            type: "array",
+            description: "Invoice line items",
+            items: {
+              type: "object",
+              properties: {
+                description: { type: "string" },
+                amount: { type: "number" },
+                quantity: { type: "integer" },
+              },
+              required: ["description", "amount", "quantity"],
+            },
+          },
+          due_date: { type: "number", description: "Due date (unix timestamp)" },
+        },
+        required: ["tenant_id", "customer_name", "items"],
+      },
+      category: "erp",
+    });
+    this.registerTool({
+      name: "erp_get_dashboard",
+      description: "Get ERP dashboard summary: total products, total orders, low stock count, recent orders",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      category: "erp",
+    });
+
 
     // Agency tools
     this.registerTool({
@@ -668,7 +775,7 @@ export class ToolRouter {
         case "orchestrator":
           return await this.executeOrchestratorTool(toolName, args);
         case "erp":
-          return await this.executeErpTool(toolName, args);
+          return await this.executeErpSqlTool(toolName, args);
         default:
           return { success: false, error: `Unknown category: ${tool.category}` };
       }
@@ -1206,11 +1313,125 @@ export class ToolRouter {
         const data8 = await res8.json();
         return { success: true, data: data8 };
       }
+      // ERP SQLite Tools
+      case "erp_list_products":
+      case "erp_get_product":
+      case "erp_get_order":
+      case "erp_list_orders":
+      case "erp_get_inventory":
+      case "erp_create_invoice":
+      case "erp_get_dashboard":
+        return this.executeErpSqlTool(toolName, _args);
       default:
         return {
           success: false,
           error: `Unknown orchestrator tool: ${toolName}`,
         };
+    }
+  }
+
+  private async executeErpSqlTool(
+    toolName: string,
+    args: any
+  ): Promise<ToolResult> {
+    try {
+      const dbPath = process.env.ERP_DB_PATH || path.join(process.cwd(), "..", "..", "data", "erp-core.db");
+      if (!fs.existsSync(dbPath)) {
+        return { success: false, error: `ERP database not found at ${dbPath}` };
+      }
+      const db = new Database(dbPath);
+      db.pragma("journal_mode = WAL");
+      let result: any;
+      switch (toolName) {
+        case "erp_list_products": {
+          let sql = "SELECT id, name, sku, price, quantity, status, category_id, low_stock_threshold, description FROM products WHERE tenant_id = ?";
+          const params: any[] = ["tenant_001"];
+          if (args.category_id) { sql += " AND category_id = ?"; params.push(args.category_id); }
+          if (args.status) { sql += " AND status = ?"; params.push(args.status); }
+          if (args.search) { sql += " AND (name LIKE ? OR sku LIKE ?)"; params.push(`%${args.search}%`, `%${args.search}%`); }
+          sql += " ORDER BY name ASC LIMIT ?";
+          params.push(args.limit || 50);
+          const rows = db.prepare(sql).all(...params);
+          result = { products: rows, total: rows.length };
+          break;
+        }
+        case "erp_get_product": {
+          const row = db.prepare("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ?").get(args.product_id);
+          if (!row) return { success: false, error: `Product ${args.product_id} not found` };
+          result = { product: row };
+          break;
+        }
+        case "erp_get_order": {
+          const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(args.order_id);
+          if (!order) return { success: false, error: `Order ${args.order_id} not found` };
+          const items = db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(args.order_id);
+          result = { order, items };
+          break;
+        }
+        case "erp_list_orders": {
+          let sql = "SELECT id, order_number, customer_name, status, total, channel, created_at FROM orders WHERE tenant_id = ?";
+          const params: any[] = ["tenant_001"];
+          if (args.status) { sql += " AND status = ?"; params.push(args.status); }
+          if (args.customer_name) { sql += " AND customer_name LIKE ?"; params.push(`%${args.customer_name}%`); }
+          sql += " ORDER BY created_at DESC LIMIT ?";
+          params.push(args.limit || 20);
+          const rows = db.prepare(sql).all(...params);
+          result = { orders: rows, total: rows.length };
+          break;
+        }
+        case "erp_get_inventory": {
+          if (args.product_id) {
+            const row = db.prepare("SELECT id, name, sku, quantity, low_stock_threshold, price FROM products WHERE id = ?").get(args.product_id) as any;
+            if (!row) return { success: false, error: `Product ${args.product_id} not found` };
+            result = { product: row, is_low_stock: row.quantity <= row.low_stock_threshold };
+          } else {
+            let sql = "SELECT id, name, sku, quantity, low_stock_threshold, price FROM products WHERE tenant_id = ?";
+            const params: any[] = ["tenant_001"];
+            if (args.low_stock_only) { sql += " AND quantity <= low_stock_threshold"; }
+            sql += " ORDER BY quantity ASC";
+            const rows = db.prepare(sql).all(...params);
+            const lowStock = rows.filter((r: any) => r.quantity <= r.low_stock_threshold);
+            result = { products: rows, low_stock_count: lowStock.length, total_products: rows.length };
+          }
+          break;
+        }
+        case "erp_create_invoice": {
+          const tenantId = args.tenant_id || "tenant_001";
+          const invoiceId = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const now = Date.now();
+          const dueDate = args.due_date || (now + 30 * 24 * 60 * 60 * 1000);
+          const totalAmount = (args.items || []).reduce((sum: number, item: any) => sum + (item.amount * item.quantity), 0);
+          db.prepare("INSERT INTO invoices (id, tenant_id, subscription_id, amount, currency, status, due_date, created_at) VALUES (?, ?, NULL, ?, 'THB', 'draft', ?, ?)").run(invoiceId, tenantId, totalAmount, dueDate, now);
+          for (const item of (args.items || [])) {
+            const lineId = `invl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            db.prepare("INSERT INTO invoice_lines (id, invoice_id, description, amount, quantity) VALUES (?, ?, ?, ?, ?)").run(lineId, invoiceId, item.description, item.amount, item.quantity || 1);
+          }
+          result = { invoice_id: invoiceId, amount: totalAmount, status: "draft", due_date: dueDate };
+          break;
+        }
+        case "erp_get_dashboard": {
+          const productCount: any = db.prepare("SELECT COUNT(*) as count FROM products WHERE tenant_id = ?").get("tenant_001");
+          const orderCount: any = db.prepare("SELECT COUNT(*) as count FROM orders WHERE tenant_id = ?").get("tenant_001");
+          const lowStock: any = db.prepare("SELECT COUNT(*) as count FROM products WHERE tenant_id = ? AND quantity <= low_stock_threshold").get("tenant_001");
+          const recentOrders = db.prepare("SELECT id, order_number, customer_name, status, total, created_at FROM orders WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 5").all("tenant_001");
+          const totalRevenue: any = db.prepare("SELECT COALESCE(SUM(total), 0) as total FROM orders WHERE tenant_id = ? AND status IN ('shipped', 'delivered')").get("tenant_001");
+          result = {
+            total_products: productCount.count,
+            total_orders: orderCount.count,
+            low_stock_count: lowStock.count,
+            total_revenue: totalRevenue.total,
+            recent_orders: recentOrders,
+          };
+          break;
+        }
+        default:
+          db.close();
+          return { success: false, error: `Unknown ERP SQLite tool: ${toolName}` };
+      }
+      db.close();
+      return { success: true, data: result };
+    } catch (err: any) {
+      return { success: false, error: `ERP SQLite error: ${err.message}` };
     }
   }
 

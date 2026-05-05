@@ -77,8 +77,8 @@ async function main() {
       }
 
       // Validate agent name
-      const validAgents = ["rd", "brainstorm", "production", "design", "marketing"];
-      const agentName = validAgents.includes(agent) ? agent : "rd";
+      const validAgents = ["erp"];
+      const agentName = validAgents.includes(agent) ? agent : "erp";
 
       // Generate session ID if not provided
       const sid = sessionId || "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
@@ -87,12 +87,8 @@ async function main() {
       const llmConfigured = !!(process.env.LLM_API_KEY && process.env.LLM_API_KEY !== "sk-your-key-here");
 
       const agentPrompts: Record<string, string> = {
-        rd: "You are a helpful ERP assistant with access to real-time ERP data tools. You can query products, orders, inventory, customers, finance, sales, production, and HR data. Use the available tools to fetch live data when answering questions. Always respond in Thai, be concise.",
-        brainstorm: "You are a Brainstorm AI agent. Your role is to generate creative ideas and facilitate brainstorming sessions.",
-        production: "You are a Production AI agent. Your role is to oversee production processes, optimize workflows, and ensure quality control.",
-        design: "You are a Design AI agent. Your role is to create beautiful and functional designs, provide design feedback, and maintain design systems.",
-        marketing: "You are a Marketing AI agent. Your role is to develop marketing strategies, create content, and analyze market trends.",
-      };
+        erp: "You are an ERP assistant for a company called OpenHands ERP. You have access to real-time ERP data tools. You can query products, orders, inventory, customers, finance, sales, production, and HR data. Use the available tools to fetch live data when answering questions. Always respond in Thai, be concise and helpful.",
+      };;
 
       if (llmConfigured) {
         // Direct LLM mode
@@ -145,9 +141,9 @@ async function main() {
           const toolMessages: LLMMessage[] = [
             ...llmMessages,
             { role: "assistant", content: response.content || "", tool_calls: response.toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.args) } })) },
-            ...toolResults.map((tr) => ({
+            ...toolResults.map((tr, idx) => ({
               role: "tool" as const,
-              tool_call_id: response.toolCalls!.find((tc) => tc.name === tr.name)?.id || "",
+              tool_call_id: response.toolCalls![idx]?.id || "",
               content: JSON.stringify(tr.result),
             })),
           ];
@@ -506,7 +502,7 @@ app.post("/api/queue/push", async (req, res) => {
         return res.status(400).json({ error: "conversationId is required" });
       }
 
-      const validAgents = ["rd", "brainstorm", "production", "design", "marketing"];
+      const validAgents = ["erp"];
       if (!validAgents.includes(agentId)) {
         return res.status(400).json({
           error: `Invalid agent. Must be one of: ${validAgents.join(", ")}`,
@@ -537,7 +533,7 @@ app.post("/api/queue/push", async (req, res) => {
   app.get("/api/agents/:agentId/conversations", (req, res) => {
     try {
       const { agentId } = req.params;
-      const validAgents = ["rd", "brainstorm", "production", "design", "marketing"];
+      const validAgents = ["erp"];
       if (!validAgents.includes(agentId)) {
         return res.status(400).json({
           error: `Invalid agent. Must be one of: ${validAgents.join(", ")}`,
@@ -570,7 +566,7 @@ app.post("/api/queue/push", async (req, res) => {
       if (!sourceAgent || !targetAgent || !title) {
         return res.status(400).json({ error: "sourceAgent, targetAgent, and title are required" });
       }
-      const validAgents = ["rd", "brainstorm", "production", "design", "marketing"];
+      const validAgents = ["erp"];
       if (!validAgents.includes(sourceAgent) || !validAgents.includes(targetAgent)) {
         return res.status(400).json({ error: `Invalid agent. Must be one of: ${validAgents.join(", ")}` });
       }
