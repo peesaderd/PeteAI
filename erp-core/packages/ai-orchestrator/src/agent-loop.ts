@@ -1299,13 +1299,38 @@ export class AgentLoop {
       });
     }
 
-    // Conversation history (last 20 messages — enough to cover multi-tool sequences)
+    // Conversation history (last 20 messages)
     const messages = this.chatStore.getContext(sessionId, 20);
+
+    // First pass: collect tool_call_ids from assistant/tool_calls messages
+    // and track which ones have corresponding tool responses
+    const assistantCallIds = new Set<string>();
+    const respondedCallIds = new Set<string>();
+    for (const msg of messages) {
+      if (msg.role === "assistant" && msg.toolCalls) {
+        try {
+          const parsed = JSON.parse(msg.toolCalls);
+          for (const tc of parsed) {
+            if (tc.id) assistantCallIds.add(tc.id);
+          }
+        } catch {}
+      }
+      if (msg.role === "tool" && msg.toolCalls) {
+        try {
+          const parsed = JSON.parse(msg.toolCalls);
+          if (parsed.length > 0 && parsed[0].id) {
+            respondedCallIds.add(parsed[0].id);
+          }
+        } catch {}
+      }
+    }
+
+    // Second pass: only include messages that form valid tool_call sequences
     for (const msg of messages) {
       if (msg.role === "system") continue;
 
       if (msg.role === "tool") {
-        // Extract tool_call_id from stored metadata
+        // Skip orphan tool message (no matching assistant/tool_calls in context)
         let toolCallId = "";
         if (msg.toolCalls) {
           try {
@@ -1315,15 +1340,18 @@ export class AgentLoop {
             }
           } catch {}
         }
+        if (!toolCallId || !assistantCallIds.has(toolCallId)) continue;
         llmMessages.push({
           role: "tool",
           content: msg.content,
-          tool_call_id: toolCallId || `call_${msg.id}`,
+          tool_call_id: toolCallId,
         });
       } else if (msg.role === "assistant" && msg.toolCalls) {
-        // Reconstruct tool_calls in OpenAI format
+        // Skip assistant/tool_calls if not all tool responses are present
         try {
           const parsed = JSON.parse(msg.toolCalls);
+          const allResponded = parsed.every((tc: any) => respondedCallIds.has(tc.id));
+          if (!allResponded) continue;
           llmMessages.push({
             role: "assistant",
             content: msg.content,
