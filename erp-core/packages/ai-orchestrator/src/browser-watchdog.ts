@@ -2,10 +2,11 @@
 // Browser Watchdog — ตรวจสอบ health ของ Browser instance
 // และ revive อัตโนมัติเมื่อ browser ตาย
 //
-// ทำงานเป็น background interval:
-//   - ทุก 30 วิ เช็คว่า browser ยัง alive ไหม
-//   - ถ้าตาย → restart browser + login ใหม่
-//   - log สถานะให้รู้
+// Smart Sleep Logic:
+//   - ถ้า browser ถูก deactivate → หยุดตรวจทั้งหมด
+//   - ถ้า browser active แต่ไม่มี chat activity 3 รอบ → sleep
+//   - sleep แล้ว browser ถูกปิดจริงๆ
+//   - wake อัตโนมัติเมื่อมี request เข้า /api/chat
 // ============================================================
 
 import { BrowserUse } from "./browser-use.js";
@@ -50,6 +51,24 @@ export class BrowserWatchdog {
     if (!this.running) return;
 
     try {
+      const status = this.browser.getStatus();
+
+      // ─── ถ้า deactivate → ไม่ต้องทำอะไร ─────────────────
+      if (!status.active) return;
+
+      // ─── ถ้า sleeping → ไม่ต้องตรวจ health ──────────────
+      if (status.sleeping) return;
+
+      // ─── Smart Sleep: idle check ─────────────────────────
+      // Watchdog เรียก checkIdle() ซึ่งจะนับ idle count
+      // ถ้าครบ 3 → ปิด browser อัตโนมัติ
+      const idle = this.browser.checkIdle();
+      if (idle.shouldSleep) {
+        console.log("[Watchdog] Browser went to sleep (idle threshold reached)");
+        return;
+      }
+
+      // ─── Health check ปกติ ──────────────────────────────
       const healthy = await this.browser.isHealthy();
 
       if (healthy) {

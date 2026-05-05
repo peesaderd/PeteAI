@@ -22,6 +22,12 @@ let sharedContext: BrowserContext | null = null;
 let sharedPage: Page | null = null;
 let refCount: number = 0;
 
+// ─── Smart Sleep State ───────────────────────────────────────
+let isActive = true;           // manual on/off
+let isSleeping = false;        // auto-sleep (browser closed)
+let idleCount = 0;             // consecutive idle checks
+const MAX_IDLE_CHECKS = 3;     // sleep after 3 idle checks
+
 async function getSharedPage(): Promise<Page> {
   if (!sharedBrowser) {
     sharedBrowser = await chromium.launch({
@@ -110,6 +116,82 @@ export class BrowserUse {
     } catch {
       return false;
     }
+  }
+
+  // ─── Smart Sleep: Manual Control ───────────────────────────
+
+  /** เปิด browser — ให้ Watchdog ตรวจต่อไป */
+  activate(): void {
+    isActive = true;
+    isSleeping = false;
+    idleCount = 0;
+    console.log("[BrowserUse] Activated");
+  }
+
+  /** ปิด browser — Watchdog หยุดตรวจ, browser ถูกปิด */
+  async deactivate(): Promise<void> {
+    isActive = false;
+    isSleeping = false;
+    idleCount = 0;
+    await closeSharedBrowser();
+    refCount = 0;
+    this.page = null;
+    console.log("[BrowserUse] Deactivated — browser closed");
+  }
+
+  /** ปลุกจาก sleep — เรียกเมื่อมี request เข้า /api/chat */
+  async wake(): Promise<boolean> {
+    if (!isActive) {
+      console.log("[BrowserUse] Cannot wake — browser is deactivated");
+      return false;
+    }
+    if (!isSleeping) return true; // already awake
+    isSleeping = false;
+    idleCount = 0;
+    console.log("[BrowserUse] Waking from sleep...");
+    try {
+      await this.init();
+      return true;
+    } catch (err: any) {
+      console.error("[BrowserUse] Wake failed:", err.message);
+      return false;
+    }
+  }
+
+  /** ตรวจสอบว่า browser ควร sleep หรือไม่ (เรียกโดย Watchdog) */
+  checkIdle(): { shouldSleep: boolean; idleCount: number } {
+    if (!isActive || isSleeping) {
+      return { shouldSleep: false, idleCount: 0 };
+    }
+    idleCount++;
+    const shouldSleep = idleCount >= MAX_IDLE_CHECKS;
+    if (shouldSleep) {
+      isSleeping = true;
+      console.log("[BrowserUse] Idle threshold reached — going to sleep");
+      // ปิด browser จริงๆ ตอน sleep
+      closeSharedBrowser().catch(() => {});
+      refCount = 0;
+      this.page = null;
+    }
+    return { shouldSleep, idleCount };
+  }
+
+  /** รีเซ็ต idle count — เรียกเมื่อมี activity */
+  resetIdle(): void {
+    idleCount = 0;
+  }
+
+  /** ดูสถานะปัจจุบัน */
+  getStatus(): { active: boolean; sleeping: boolean; idleCount: number; healthy: boolean; url: string } {
+    const p = this.page || sharedPage;
+    const healthy = p !== null && !p.isClosed();
+    return {
+      active: isActive,
+      sleeping: isSleeping,
+      idleCount,
+      healthy,
+      url: p ? p.url() : "",
+    };
   }
 
   // ─── Navigation ────────────────────────────────────────────

@@ -16,6 +16,8 @@ import { AgentLoop } from "./agent-loop.js";
 import { RedisTaskQueue } from "./redis-queue.js";
 import { v4 as uuidv4 } from "uuid";
 import { WorkflowEngine } from "./workflow.js";
+import { BrowserUse } from "./browser-use.js";
+import { BrowserWatchdog } from "./browser-watchdog.js";
 
 const PORT = parseInt(process.env.ORCHESTRATOR_PORT || "54516", 10);
 
@@ -55,6 +57,15 @@ async function main() {
     workflowEngine = new WorkflowEngine(toolRouter, memory, llm, redisQueue);
   }
 
+  // Initialize Browser Use + Watchdog (Smart Sleep)
+  const browserUse = new BrowserUse();
+  const browserWatchdog = new BrowserWatchdog(browserUse);
+  if (process.env.BROWSER_WATCHDOG_ENABLED === "true") {
+    await browserUse.init();
+    browserWatchdog.start();
+    console.log("[Server] Browser Watchdog started (Smart Sleep enabled)");
+  }
+
   // ============================================================
 
   // ============================================================
@@ -86,6 +97,23 @@ async function main() {
       if (!message) {
         return res.status(400).json({ error: "message is required" });
       }
+
+      // ─── Auto-Wake Browser ─────────────────────────────────
+      // ถ้า browser กำลัง sleep → ปลุกก่อนทำงาน
+      const browserStatus = browserUse.getStatus();
+      if (!browserStatus.active) {
+        console.log("[Chat API] Browser is deactivated — skipping wake");
+      } else if (browserStatus.sleeping) {
+        console.log("[Chat API] Browser is sleeping — waking up...");
+        const woke = await browserUse.wake();
+        if (woke) {
+          console.log("[Chat API] Browser woke up successfully");
+        } else {
+          console.warn("[Chat API] Browser wake failed — continuing without browser");
+        }
+      }
+      // รีเซ็ต idle count ทุกครั้งที่มี chat
+      browserUse.resetIdle();
 
       // Validate agent name
       const validAgents = ["erp"];
@@ -324,6 +352,40 @@ app.post("/api/agents/loop/start", (_req, res) => {
 app.post("/api/agents/loop/stop", (_req, res) => {
     agentLoop.stop();
     res.json({ status: "stopped" });
+  });
+
+  // ============================================================
+  // Browser Control API (Smart Sleep)
+  // ============================================================
+
+  // ดูสถานะ browser ปัจจุบัน
+  app.get("/api/browser/status", (_req, res) => {
+    res.json(browserUse.getStatus());
+  });
+
+  // เปิด browser ด้วยมือ (activate)
+  app.post("/api/browser/activate", async (_req, res) => {
+    browserUse.activate();
+    const woke = await browserUse.wake();
+    res.json({ status: "activated", woke });
+  });
+
+  // ปิด browser ด้วยมือ (deactivate) — หยุด Watchdog, ปิด browser
+  app.post("/api/browser/deactivate", async (_req, res) => {
+    await browserUse.deactivate();
+    res.json({ status: "deactivated" });
+  });
+
+  // ปลุก browser (wake from sleep)
+  app.post("/api/browser/wake", async (_req, res) => {
+    const woke = await browserUse.wake();
+    res.json({ status: woke ? "awake" : "wake_failed" });
+  });
+
+  // รีเซ็ต idle count
+  app.post("/api/browser/reset-idle", (_req, res) => {
+    browserUse.resetIdle();
+    res.json({ status: "idle_reset" });
   });
 
   // ============================================================
