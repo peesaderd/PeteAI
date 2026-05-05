@@ -81,6 +81,16 @@ module.exports = {
         ERP_ROOT: "/root/erp-core/erp-core",
         UPDATE_INTERVAL: "300000"
       }
+    },
+    {
+      name: "telegram-bot",
+      cwd: "/root/erp-core/erp-core/packages/telegram-bot",
+      script: "dist/index.js",
+      env: {
+        TELEGRAM_BOT_TOKEN: "8797457294:AAETDne97sVGENdcd_yrXV8_xSRkshNKwfQ",
+        ORCHESTRATOR_URL: "http://127.0.0.1:54516",
+        BOT_LANGUAGE: "th"
+      }
     }
   ]
 };
