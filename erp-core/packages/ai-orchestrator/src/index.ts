@@ -9,7 +9,7 @@ import { MemoryStore } from "./memory.js";
 import { ToolRouter } from "./tool-router.js";
 import { WebhookHandler, type WebhookEvent } from "./webhooks.js";
 import { Scheduler } from "./scheduler.js";
-import { LLMClient, type LLMMessage } from "./llm.js";
+import { LLMClient, type LLMMessage, type LLMToolDef } from "./llm.js";
 import { AgentLoop } from "./agent-loop.js";
 import { RedisTaskQueue } from "./redis-queue.js";
 import { v4 as uuidv4 } from "uuid";
@@ -87,7 +87,7 @@ async function main() {
       const llmConfigured = !!(process.env.LLM_API_KEY && process.env.LLM_API_KEY !== "sk-your-key-here");
 
       const agentPrompts: Record<string, string> = {
-        rd: "You are a helpful ERP assistant. Answer questions about products, orders, inventory, production, HR, and finance. Respond in Thai, be concise.",
+        rd: "You are a helpful ERP assistant with access to real-time ERP data tools. You can query products, orders, inventory, customers, finance, sales, production, and HR data. Use the available tools to fetch live data when answering questions. Always respond in Thai, be concise.",
         brainstorm: "You are a Brainstorm AI agent. Your role is to generate creative ideas and facilitate brainstorming sessions.",
         production: "You are a Production AI agent. Your role is to oversee production processes, optimize workflows, and ensure quality control.",
         design: "You are a Design AI agent. Your role is to create beautiful and functional designs, provide design feedback, and maintain design systems.",
@@ -111,12 +111,57 @@ async function main() {
           llmMessages.push({ role: "system", content: "Please respond in Thai language." });
         }
 
-        const response = await llm.chat(llmMessages, undefined, {
+        // Get available tools and convert to LLM format
+        const allTools = toolRouter.getTools();
+        const llmTools: LLMToolDef[] = allTools.map((t) => ({
+            type: "function" as const,
+            function: {
+              name: t.name,
+              description: t.description,
+              parameters: t.inputSchema,
+            },
+          }));
+
+        const response = await llm.chat(llmMessages, llmTools.length > 0 ? llmTools : undefined, {
           maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096", 10),
           temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.3"),
         });
 
-        const reply = response.content || "I apologize, but I was unable to generate a response.";
+        let reply = response.content || "";
+        const toolResults: any[] = [];
+
+        // Handle tool calls if LLM requested them
+        if (response.toolCalls && response.toolCalls.length > 0) {
+          for (const tc of response.toolCalls) {
+            try {
+              const result = await toolRouter.executeTool(tc.name, tc.args);
+              toolResults.push({ name: tc.name, result: result.data || result });
+            } catch (err: any) {
+              toolResults.push({ name: tc.name, error: err.message });
+            }
+          }
+
+          // Send tool results back to LLM for final response
+          const toolMessages: LLMMessage[] = [
+            ...llmMessages,
+            { role: "assistant", content: response.content || "", tool_calls: response.toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.args) } })) },
+            ...toolResults.map((tr) => ({
+              role: "tool" as const,
+              tool_call_id: response.toolCalls!.find((tc) => tc.name === tr.name)?.id || "",
+              content: JSON.stringify(tr.result),
+            })),
+          ];
+
+          const finalResponse = await llm.chat(toolMessages, undefined, {
+            maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096", 10),
+            temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.3"),
+          });
+          reply = finalResponse.content || reply;
+        }
+
+        if (!reply) {
+          reply = "I apologize, but I was unable to generate a response.";
+        }
 
         // Ensure session exists
         if (!memory.getSession(sid)) {
@@ -127,13 +172,11 @@ async function main() {
         memory.addMessage(sid, "user", message);
         memory.addMessage(sid, "assistant", reply);
 
-        // Record heartbeat
-
         return res.json({
           sessionId: sid,
           response: reply,
           agent: agentName,
-          toolResults: [],
+          toolResults,
         });
       }
 
