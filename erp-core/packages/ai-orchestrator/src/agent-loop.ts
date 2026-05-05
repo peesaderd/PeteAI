@@ -1177,7 +1177,7 @@ export class AgentLoop {
 
   // ─── Process Chat Message (simplified) ────────────────────
   // Direct LLM + tool execution loop, no AgentLoop infrastructure.
-  // Avoids repetition issues by limiting context and deduplicating.
+  // Builds LLM messages manually to avoid tool_call_id issues.
 
   async processChatMessage(params: {
     sessionId: string;
@@ -1218,40 +1218,24 @@ export class AgentLoop {
     const MAX_ITER = 3;
 
     for (let iter = 0; iter < MAX_ITER; iter++) {
-      // Limit context to last 10 messages to avoid LLM confusion
-      const messages = this.memory.getConversationContext(sessionId, 10);
-      const llmMessages = this.buildLLMMessages(
-        { id: "", agentName, sessionId, iteration: 0, phase: 0, taskData: {}, startedAt: 0, status: "running" },
-        agentConfig,
-        messages
-      );
-
-      // Inject knowledge context if provided (only on first iteration)
-      if (iter === 0 && knowledgeContext) {
-        llmMessages.push({
-          role: "user",
-          content: `[Knowledge Base Context]\n${knowledgeContext}\n\n---\n\nPlease use the above context if relevant to answer the user's question.`,
-        });
-      }
+      // Build LLM messages manually — avoids buildLLMMessages tool_call_id bugs
+      const llmMessages = this.buildChatLLMMessages(sessionId, agentName, knowledgeContext, iter === 0);
 
       let result;
       try {
         result = await this.llm.chat(llmMessages, toolDefs);
       } catch (err: any) {
         console.error(`[AgentLoop] Chat LLM error:`, err.message);
-        // Fallback on error
         const fallback = await this.ruleBasedChatResponse(sessionId, message, agentName);
         this.memory.addMessage(sessionId, "assistant", fallback);
         return { response: fallback, sessionId, toolResults };
       }
 
-      // Store assistant response
+      // Handle tool calls
       if (result.toolCalls && result.toolCalls.length > 0) {
         this.memory.addMessage(sessionId, "assistant", result.content || "", {
           toolCalls: JSON.stringify(result.toolCalls),
         });
-
-        // Execute each tool call
         for (const tc of result.toolCalls) {
           const toolResult = await this.toolRouter.executeTool(tc.name, tc.args);
           this.memory.addMessage(sessionId, "tool", JSON.stringify(toolResult), {
@@ -1260,16 +1244,13 @@ export class AgentLoop {
           });
           toolResults.push(toolResult);
         }
-        // Continue loop to process tool results
         continue;
       }
 
       // Content-only response
       if (result.content) {
-        // Detect repetition: if response is too similar to last one, break
         if (lastAssistantContent && this.isRepeatedResponse(lastAssistantContent, result.content)) {
           console.log(`[AgentLoop] Detected repeated response, breaking loop`);
-          // Remove the repeated response and use a fallback
           this.memory.deleteLastMessage(sessionId);
           const fallback = "รับทราบครับ มีอะไรให้ช่วยไหมครับ";
           this.memory.addMessage(sessionId, "assistant", fallback);
@@ -1279,7 +1260,6 @@ export class AgentLoop {
         this.memory.addMessage(sessionId, "assistant", result.content);
       }
 
-      // No tool calls = done
       break;
     }
 
@@ -1299,6 +1279,82 @@ export class AgentLoop {
     }
 
     return { response, sessionId, toolResults };
+  }
+
+  // ─── Build Chat LLM Messages (manual, avoids buildLLMMessages bugs) ──
+
+  private buildChatLLMMessages(
+    sessionId: string,
+    agentName: string,
+    knowledgeContext?: string,
+    injectKnowledge = false
+  ): LLMMessage[] {
+    const llmMessages: LLMMessage[] = [];
+
+    // System prompt
+    const agent = this.agents.get(agentName);
+    if (agent) {
+      const allToolNames = this.toolRouter.getTools().map((t) => t.name);
+      llmMessages.push({
+        role: "system",
+        content: LLMClient.getSystemPrompt(agent.name, agent.role, allToolNames),
+      });
+    }
+
+    // Conversation history (last 10 messages)
+    const messages = this.memory.getConversationContext(sessionId, 10);
+    for (const msg of messages) {
+      if (msg.role === "system") continue;
+
+      if (msg.role === "tool") {
+        // Extract tool_call_id from stored metadata
+        let toolCallId = "";
+        if (msg.toolCalls) {
+          try {
+            const parsed = JSON.parse(msg.toolCalls);
+            if (parsed.length > 0 && parsed[0].id) {
+              toolCallId = parsed[0].id;
+            }
+          } catch {}
+        }
+        llmMessages.push({
+          role: "tool",
+          content: msg.content,
+          tool_call_id: toolCallId || `call_${msg.id}`,
+        });
+      } else if (msg.role === "assistant" && msg.toolCalls) {
+        // Reconstruct tool_calls in OpenAI format
+        try {
+          const parsed = JSON.parse(msg.toolCalls);
+          llmMessages.push({
+            role: "assistant",
+            content: msg.content,
+            tool_calls: parsed.map((tc: any) => ({
+              id: tc.id,
+              type: "function",
+              function: {
+                name: tc.name,
+                arguments: JSON.stringify(tc.args),
+              },
+            })),
+          });
+        } catch {
+          llmMessages.push({ role: "assistant", content: msg.content });
+        }
+      } else {
+        llmMessages.push({ role: msg.role as any, content: msg.content });
+      }
+    }
+
+    // Inject knowledge context
+    if (injectKnowledge && knowledgeContext) {
+      llmMessages.push({
+        role: "user",
+        content: `[Knowledge Base Context]\n${knowledgeContext}\n\n---\n\nPlease use the above context if relevant to answer the user's question.`,
+      });
+    }
+
+    return llmMessages;
   }
 
   // ─── Detect Repeated Responses ──────────────────────────────
