@@ -1,0 +1,16 @@
+{
+  "name": "erp-core",
+  "version": "1.0.0",
+  "description": "ERP Core System - Enterprise Resource Planning Core Module",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "vitest": "^3.1.0"
+  }
+}
