@@ -21,7 +21,8 @@
     "dev:kb": "npm run dev -w packages/knowledge-base",
     "dev:web": "npm run dev -w packages/web",
     "start:server": "npm run start -w packages/server",
-    "start:kb": "npm run start -w packages/knowledge-base"
+    "start:kb": "npm run start -w packages/knowledge-base",
+    "test:e2e:staging": "PLAYWRIGHT_BASE_URL=http://localhost:54510 playwright test --config=playwright.config.staging.ts"
   },
   "dependencies": {
     "chart.js": "^4.5.1",

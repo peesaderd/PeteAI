@@ -1,0 +1,42 @@
+services:
+  # Staging environment for E2E testing
+  erp-core-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - PORT=54510
+      - ERP_CORE_URL=http://localhost:54510
+      - NODE_ENV=staging
+      - LOG_LEVEL=debug
+    ports:
+      - "54510:54510"
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+
+  knowledge-base-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile.knowledge-base
+    environment:
+      - PORT=3100
+      - KB_DB_PATH=/app/data/knowledge-base.db
+      - KB_DATA_DIR=/app/data/kb-files
+      - NODE_ENV=staging
+    ports:
+      - "54512:3100"
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+
+  redis-staging:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    volumes:
+      - redis-data-staging:/data
+
+volumes:
+  redis-data-staging:
