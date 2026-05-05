@@ -696,6 +696,160 @@ app.get("/api/tasks", (req, res) => {
     agentLoop.start();
   }
 
+  // ============================================================
+  // Chat UI — Single-page HTML frontend
+  // ============================================================
+
+  app.get("/", (_req, res) => {
+    res.send(`<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Assistant — AI Chat</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;height:100vh;display:flex;flex-direction:column}
+  header{background:#1e293b;border-bottom:1px solid #334155;padding:16px 24px;display:flex;align-items:center;gap:12px;flex-shrink:0}
+  header h1{font-size:18px;font-weight:600;color:#f1f5f9}
+  header .badge{background:#3b82f6;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:500}
+  header .status{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:13px;color:#94a3b8}
+  header .dot{width:8px;height:8px;border-radius:50%;background:#22c55e}
+  #chat{flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:16px}
+  #chat .msg{max-width:80%;padding:12px 16px;border-radius:12px;line-height:1.6;font-size:14px;white-space:pre-wrap;word-break:break-word}
+  #chat .msg.user{background:#3b82f6;color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+  #chat .msg.assistant{background:#1e293b;color:#e2e8f0;align-self:flex-start;border-bottom-left-radius:4px;border:1px solid #334155}
+  #chat .msg.system{align-self:center;background:#334155;color:#94a3b8;font-size:12px;padding:6px 12px;border-radius:6px}
+  #chat .msg .tools{margin-top:8px;padding-top:8px;border-top:1px solid #334155;font-size:12px;color:#94a3b8}
+  #chat .msg .tools summary{cursor:pointer;color:#60a5fa}
+  #chat .msg .tools pre{background:#0f172a;padding:8px;border-radius:4px;margin-top:4px;overflow-x:auto;font-size:11px;color:#a5b4fc}
+  #input-bar{display:flex;gap:8px;padding:16px 24px;background:#1e293b;border-top:1px solid #334155;flex-shrink:0}
+  #input-bar textarea{flex:1;padding:10px 14px;border-radius:8px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;font-size:14px;resize:none;outline:none;font-family:inherit;min-height:44px;max-height:120px}
+  #input-bar textarea:focus{border-color:#3b82f6}
+  #input-bar button{padding:10px 20px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:14px;font-weight:500;cursor:pointer;transition:background .2s}
+  #input-bar button:hover{background:#2563eb}
+  #input-bar button:disabled{background:#475569;cursor:not-allowed}
+  .typing{display:flex;gap:4px;padding:4px 0}
+  .typing span{width:8px;height:8px;border-radius:50%;background:#64748b;animation:bounce 1.4s infinite}
+  .typing span:nth-child(2){animation-delay:.2s}
+  .typing span:nth-child(3){animation-delay:.4s}
+  @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+  @media(max-width:640px){#chat .msg{max-width:90%}#input-bar{padding:12px 16px}header{padding:12px 16px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 ERP Assistant</h1>
+  <span class="badge">Agent Loop</span>
+  <div class="status">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">Connected</span>
+  </div>
+</header>
+<div id="chat"></div>
+<div id="input-bar">
+  <textarea id="input" rows="1" placeholder="พิมพ์ข้อความที่นี่..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
+  <button id="sendBtn" onclick="send()">ส่ง</button>
+</div>
+<script>
+const chat=document.getElementById('chat');
+const input=document.getElementById('input');
+const sendBtn=document.getElementById('sendBtn');
+let sessionId=null;
+
+function addMsg(role,content,tools){
+  const div=document.createElement('div');
+  div.className='msg '+role;
+  if(role==='system'){div.textContent=content;chat.appendChild(div);chat.scrollTop=chat.scrollHeight;return}
+  const text=document.createElement('div');
+  text.textContent=content;
+  div.appendChild(text);
+  if(tools&&tools.length){
+    const det=document.createElement('details');
+    det.className='tools';
+    const sum=document.createElement('summary');
+    sum.textContent='🔧 Tools called ('+tools.length+')';
+    det.appendChild(sum);
+    const pre=document.createElement('pre');
+    pre.textContent=JSON.stringify(tools,null,2);
+    det.appendChild(pre);
+    div.appendChild(det);
+  }
+  chat.appendChild(div);
+  chat.scrollTop=chat.scrollHeight;
+}
+
+function showTyping(){
+  const div=document.createElement('div');
+  div.className='msg assistant';
+  div.id='typing';
+  const t=document.createElement('div');
+  t.className='typing';
+  t.innerHTML='<span></span><span></span><span></span>';
+  div.appendChild(t);
+  chat.appendChild(div);
+  chat.scrollTop=chat.scrollHeight;
+}
+
+function hideTyping(){
+  const t=document.getElementById('typing');
+  if(t)t.remove();
+}
+
+async function send(){
+  const msg=input.value.trim();
+  if(!msg)return;
+  input.value='';
+  input.style.height='auto';
+  addMsg('user',msg);
+  showTyping();
+  sendBtn.disabled=true;
+  try{
+    const res=await fetch('/api/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message:msg,sessionId,language:'th'})
+    });
+    const data=await res.json();
+    sessionId=data.sessionId;
+    hideTyping();
+    addMsg('assistant',data.response,data.toolResults);
+  }catch(e){
+    hideTyping();
+    addMsg('system','⚠️ Connection error: '+(e.message||'unknown'));
+  }finally{
+    sendBtn.disabled=false;
+    input.focus();
+  }
+}
+
+// Auto-resize textarea
+input.addEventListener('input',()=>{input.style.height='auto';input.style.height=Math.min(input.scrollHeight,120)+'px'});
+
+// Check server health
+async function checkHealth(){
+  try{
+    const res=await fetch('/api/agents/loop');
+    const data=await res.json();
+    if(data.running){
+      document.getElementById('statusDot').style.background='#22c55e';
+      document.getElementById('statusText').textContent='Agent Loop Running';
+    }
+  }catch(e){
+    document.getElementById('statusDot').style.background='#ef4444';
+    document.getElementById('statusText').textContent='Disconnected';
+  }
+}
+checkHealth();
+setInterval(checkHealth,15000);
+
+// Welcome message
+addMsg('assistant','👋 สวัสดีครับ! ผมคือ **ERP Assistant** — ผู้ช่วย AI สำหรับระบบ ERP Core\n\nมีอะไรให้ผมช่วยไหมครับ? เช่น:\n- ดูรายการสินค้า\n- ตรวจสอบสต็อก\n- ดูคำสั่งซื้อ\n- ค้นหาเอกสาร');
+</script>
+</body>
+</html>`);
+  });
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[AI Orchestrator] Running on http://0.0.0.0:${PORT}`);
     console.log(

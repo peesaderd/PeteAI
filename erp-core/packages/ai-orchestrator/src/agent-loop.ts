@@ -1175,9 +1175,9 @@ export class AgentLoop {
     );
   }
 
-  // ─── Process Chat Message (synchronous) ────────────────────
-  // Used by the Chat API to process messages through the Agent Loop
-  // instead of calling the LLM directly.
+  // ─── Process Chat Message (simplified) ────────────────────
+  // Direct LLM + tool execution loop, no AgentLoop infrastructure.
+  // Avoids repetition issues by limiting context and deduplicating.
 
   async processChatMessage(params: {
     sessionId: string;
@@ -1209,82 +1209,112 @@ export class AgentLoop {
       return { response, sessionId, toolResults: [] };
     }
 
-    // Create an active task for this chat message
-    const taskId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const agentConfig = this.agents.get(agentName)!;
+    const toolDefs = this.buildToolDefs(agentName);
+    const toolResults: any[] = [];
+    let lastAssistantContent = "";
 
-    const activeTask: ActiveTask = {
-      id: taskId,
-      agentName,
-      sessionId,
-      iteration: 0,
-      phase: 0,
-      taskData: {
-        title: message.slice(0, 100),
-        description: message,
-        inputData: { knowledgeContext },
-        sourceRole: "user",
-        priority: "high",
-      },
-      startedAt: Date.now(),
-      status: "running",
-    };
+    // Max 3 iterations to prevent runaway loops
+    const MAX_ITER = 3;
 
-    this.activeTasks.set(taskId, activeTask);
+    for (let iter = 0; iter < MAX_ITER; iter++) {
+      // Limit context to last 10 messages to avoid LLM confusion
+      const messages = this.memory.getConversationContext(sessionId, 10);
+      const llmMessages = this.buildLLMMessages(
+        { id: "", agentName, sessionId, iteration: 0, phase: 0, taskData: {}, startedAt: 0, status: "running" },
+        agentConfig,
+        messages
+      );
 
-    try {
-      // Run iterations until completion or max iterations
-      let shouldContinue = true;
-      let maxIter = Math.min(agentConfig.maxIterationsPerTask, 5); // Cap chat at 5 iterations
+      // Inject knowledge context if provided (only on first iteration)
+      if (iter === 0 && knowledgeContext) {
+        llmMessages.push({
+          role: "user",
+          content: `[Knowledge Base Context]\n${knowledgeContext}\n\n---\n\nPlease use the above context if relevant to answer the user's question.`,
+        });
+      }
 
-      while (shouldContinue && activeTask.status === "running") {
-        activeTask.iteration++;
-        if (activeTask.iteration > maxIter) {
-          activeTask.status = "completed";
-          break;
+      let result;
+      try {
+        result = await this.llm.chat(llmMessages, toolDefs);
+      } catch (err: any) {
+        console.error(`[AgentLoop] Chat LLM error:`, err.message);
+        // Fallback on error
+        const fallback = await this.ruleBasedChatResponse(sessionId, message, agentName);
+        this.memory.addMessage(sessionId, "assistant", fallback);
+        return { response: fallback, sessionId, toolResults };
+      }
+
+      // Store assistant response
+      if (result.toolCalls && result.toolCalls.length > 0) {
+        this.memory.addMessage(sessionId, "assistant", result.content || "", {
+          toolCalls: JSON.stringify(result.toolCalls),
+        });
+
+        // Execute each tool call
+        for (const tc of result.toolCalls) {
+          const toolResult = await this.toolRouter.executeTool(tc.name, tc.args);
+          this.memory.addMessage(sessionId, "tool", JSON.stringify(toolResult), {
+            toolCalls: JSON.stringify([tc]),
+            toolResults: JSON.stringify([toolResult]),
+          });
+          toolResults.push(toolResult);
         }
-
-        const messages = this.memory.getConversationContext(sessionId, 30);
-        shouldContinue = await this.thinkAndAct(activeTask, messages);
+        // Continue loop to process tool results
+        continue;
       }
 
-      // Get the final assistant response
-      const finalMessages = this.memory.getConversationContext(sessionId, 10);
-      let response = "";
-      const toolResults: any[] = [];
-
-      for (let i = finalMessages.length - 1; i >= 0; i--) {
-        const msg = finalMessages[i];
-        if (msg.role === "assistant" && msg.content) {
-          response = msg.content;
-          break;
+      // Content-only response
+      if (result.content) {
+        // Detect repetition: if response is too similar to last one, break
+        if (lastAssistantContent && this.isRepeatedResponse(lastAssistantContent, result.content)) {
+          console.log(`[AgentLoop] Detected repeated response, breaking loop`);
+          // Remove the repeated response and use a fallback
+          this.memory.deleteLastMessage(sessionId);
+          const fallback = "รับทราบครับ มีอะไรให้ช่วยไหมครับ";
+          this.memory.addMessage(sessionId, "assistant", fallback);
+          return { response: fallback, sessionId, toolResults };
         }
+        lastAssistantContent = result.content;
+        this.memory.addMessage(sessionId, "assistant", result.content);
       }
 
-      // Collect tool results from the last few messages
-      for (const msg of finalMessages.slice(-6)) {
-        if (msg.toolResults) {
-          try {
-            const parsed = JSON.parse(msg.toolResults);
-            toolResults.push(...parsed);
-          } catch {}
-        }
-      }
-
-      if (!response) {
-        response = "I processed your request but couldn't generate a response.";
-      }
-
-      return { response, sessionId, toolResults };
-    } catch (err: any) {
-      console.error(`[AgentLoop] processChatMessage error:`, err.message);
-      // Fallback
-      const fallback = await this.ruleBasedChatResponse(sessionId, message, agentName);
-      this.memory.addMessage(sessionId, "assistant", fallback);
-      return { response: fallback, sessionId, toolResults: [] };
-    } finally {
-      this.activeTasks.delete(taskId);
+      // No tool calls = done
+      break;
     }
+
+    // Get final response
+    const finalMessages = this.memory.getConversationContext(sessionId, 5);
+    let response = "";
+    for (let i = finalMessages.length - 1; i >= 0; i--) {
+      const msg = finalMessages[i];
+      if (msg.role === "assistant" && msg.content) {
+        response = msg.content;
+        break;
+      }
+    }
+
+    if (!response) {
+      response = "รับทราบครับ มีอะไรให้ช่วยไหมครับ";
+    }
+
+    return { response, sessionId, toolResults };
+  }
+
+  // ─── Detect Repeated Responses ──────────────────────────────
+
+  private isRepeatedResponse(prev: string, curr: string): boolean {
+    const a = prev.toLowerCase().trim().slice(0, 100);
+    const b = curr.toLowerCase().trim().slice(0, 100);
+    if (!a || !b) return false;
+    // Simple overlap check: if they share >60% of first 100 chars
+    const minLen = Math.min(a.length, b.length);
+    if (minLen < 20) return false;
+    let matches = 0;
+    for (let i = 0; i < minLen; i++) {
+      if (a[i] === b[i]) matches++;
+    }
+    return matches / minLen > 0.6;
   }
 
   // ─── Rule-Based Chat Response (Fallback) ───────────────────

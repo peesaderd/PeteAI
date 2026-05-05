@@ -171,6 +171,15 @@ export class MemoryStore {
     return this.getMessage(id)!;
   }
 
+  deleteLastMessage(sessionId: string): void {
+    const row = this.d
+      .prepare("SELECT id FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 1")
+      .get(sessionId) as any;
+    if (row) {
+      this.d.prepare("DELETE FROM messages WHERE id = ?").run(row.id);
+    }
+  }
+
   getMessage(id: string): Message | null {
     const row = this.d.prepare("SELECT * FROM messages WHERE id = ?").get(id) as any;
     if (!row) return null;
