@@ -1326,6 +1326,8 @@ export class AgentLoop {
     }
 
     // Second pass: only include messages that form valid tool_call sequences
+    // Track which assistant/tool_calls messages are actually included
+    const includedAssistantCallIds = new Set<string>();
     for (const msg of messages) {
       if (msg.role === "system") continue;
 
@@ -1340,7 +1342,8 @@ export class AgentLoop {
             }
           } catch {}
         }
-        if (!toolCallId || !assistantCallIds.has(toolCallId)) continue;
+        // Only include tool message if its assistant/tool_calls was actually included
+        if (!toolCallId || !includedAssistantCallIds.has(toolCallId)) continue;
         llmMessages.push({
           role: "tool",
           content: msg.content,
@@ -1352,6 +1355,10 @@ export class AgentLoop {
           const parsed = JSON.parse(msg.toolCalls);
           const allResponded = parsed.every((tc: any) => respondedCallIds.has(tc.id));
           if (!allResponded) continue;
+          // Register these tool_call_ids as included before adding tool messages
+          for (const tc of parsed) {
+            if (tc.id) includedAssistantCallIds.add(tc.id);
+          }
           llmMessages.push({
             role: "assistant",
             content: msg.content,
