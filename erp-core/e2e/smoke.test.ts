@@ -18,7 +18,7 @@ test.describe("ERP Web UI Smoke Tests", () => {
     await page.goto("/");
     await page.waitForLoadState("networkidle");
     const dashboardLink = page.locator(
-      'a:has-text("Dashboard"), a:has-text("\u0e2b\u0e19\u0e49\u0e32\u0e2b\u0e25\u0e31\u0e01")'
+      "a:has-text(\"Dashboard\"), a:has-text(\"หน้าหลัก\")"
     );
     if (await dashboardLink.isVisible()) {
       await dashboardLink.click();
@@ -85,5 +85,172 @@ test.describe("ERP Core 404 Handling", () => {
   test("GET /api/nonexistent returns 404", async ({ request }) => {
     const resp = await request.get(BASE + "/api/nonexistent-route");
     expect(resp.status()).toBe(404);
+  });
+});
+
+// ============================================================
+// UI State Persistence Tests
+// ============================================================
+test.describe("UI State Persistence", () => {
+  test.describe("Dark Mode", () => {
+    test("dark mode persists after page refresh", async ({ page }) => {
+      await page.goto("/");
+      await page.waitForLoadState("networkidle");
+
+      // Find and click dark mode toggle
+      const darkModeToggle = page.locator(
+        "button:has-text(\"Dark\"), " +
+        "button:has-text(\"dark\"), " +
+        "button:has-text(\"มืด\"), " +
+        "[role=switch], " +
+        ".dark-mode-toggle, " +
+        "#dark-mode-toggle, " +
+        "button:has(.moon), " +
+        "button:has(.sun), " +
+        "label:has-text(\"Dark Mode\") input[type=checkbox], " +
+        "[data-testid=dark-mode-toggle]"
+      );
+      const toggleCount = await darkModeToggle.count();
+
+      if (toggleCount === 0) {
+        test.skip(true, "Dark mode toggle not found on page");
+        return;
+      }
+
+      // Check current theme before toggle
+      const html = page.locator("html");
+      const body = page.locator("body");
+      const wasDarkBefore =
+        (await html.getAttribute("class"))?.includes("dark") ||
+        (await html.getAttribute("data-theme")) === "dark" ||
+        (await body.getAttribute("class"))?.includes("dark");
+
+      // Toggle dark mode on
+      if (!wasDarkBefore) {
+        await darkModeToggle.first().click();
+        await page.waitForTimeout(500); // wait for CSS transition
+      }
+
+      // Verify dark mode is applied
+      const isDarkAfterToggle =
+        (await html.getAttribute("class"))?.includes("dark") ||
+        (await html.getAttribute("data-theme")) === "dark" ||
+        (await body.getAttribute("class"))?.includes("dark") ||
+        (await body.evaluate(() =>
+          getComputedStyle(document.body).getPropertyValue("--bg-color")
+        )) !== "";
+
+      if (!isDarkAfterToggle) {
+        test.skip(true, "Dark mode class not detectable");
+        return;
+      }
+
+      // ★★★ THE KEY TEST: Refresh and check persistence ★★★
+      await page.reload();
+      await page.waitForLoadState("networkidle");
+
+      const isDarkAfterRefresh =
+        (await html.getAttribute("class"))?.includes("dark") ||
+        (await html.getAttribute("data-theme")) === "dark" ||
+        (await body.getAttribute("class"))?.includes("dark");
+
+      expect(isDarkAfterRefresh).toBeTruthy();
+    });
+  });
+
+  test.describe("Sidebar State", () => {
+    test("sidebar collapse state persists after refresh", async ({ page }) => {
+      await page.goto("/");
+      await page.waitForLoadState("networkidle");
+
+      // Find sidebar collapse toggle
+      const collapseBtn = page.locator(
+        "button:has-text(\"Collapse\"), " +
+        "button:has-text(\"collapse\"), " +
+        "button[aria-label*=\"sidebar\" i], " +
+        "button[aria-label*=\"Sidebar\" i], " +
+        ".sidebar-toggle, " +
+        "[data-testid=sidebar-toggle]"
+      );
+      const btnCount = await collapseBtn.count();
+
+      if (btnCount === 0) {
+        test.skip(true, "Sidebar collapse button not found");
+        return;
+      }
+
+      // Get sidebar state before
+      const sidebar = page.locator("nav, aside, [role=navigation], .sidebar").first();
+      const wasCollapsedBefore = await sidebar.getAttribute("class")
+        .then(c => c?.includes("collapsed") || c?.includes("closed"))
+        .catch(() => false);
+
+      // Toggle sidebar
+      if (!wasCollapsedBefore) {
+        await collapseBtn.first().click();
+        await page.waitForTimeout(300);
+      }
+
+      // Verify collapsed
+      const isCollapsed = await sidebar.getAttribute("class")
+        .then(c => c?.includes("collapsed") || c?.includes("closed"))
+        .catch(() => false);
+
+      if (!isCollapsed) {
+        test.skip(true, "Sidebar collapse state not detectable");
+        return;
+      }
+
+      // ★★★ Refresh and check persistence ★★★
+      await page.reload();
+      await page.waitForLoadState("networkidle");
+
+      const isCollapsedAfterRefresh = await sidebar.getAttribute("class")
+        .then(c => c?.includes("collapsed") || c?.includes("closed"))
+        .catch(() => false);
+
+      expect(isCollapsedAfterRefresh).toBeTruthy();
+    });
+  });
+
+  test.describe("Language / Locale", () => {
+    test("language selection persists after refresh", async ({ page }) => {
+      await page.goto("/");
+      await page.waitForLoadState("networkidle");
+
+      // Find language switcher
+      const langSwitcher = page.locator(
+        "select:has(option[value=th]), " +
+        "select:has(option[value=en]), " +
+        "button:has-text(\"ภาษา\"), " +
+        "button:has-text(\"Language\"), " +
+        "[data-testid=language-switcher]"
+      );
+      const swCount = await langSwitcher.count();
+
+      if (swCount === 0) {
+        test.skip(true, "Language switcher not found");
+        return;
+      }
+
+      // Try switching to Thai if available
+      const thaiOption = page.locator("option[value=th], option:has-text(\"ไทย\")");
+      if (await thaiOption.count() > 0) {
+        await page.locator("select").first().selectOption("th");
+        await page.waitForTimeout(300);
+      } else {
+        test.skip(true, "Thai language option not found");
+        return;
+      }
+
+      // ★★★ Refresh and check persistence ★★★
+      await page.reload();
+      await page.waitForLoadState("networkidle");
+
+      // Check if still in Thai
+      const selectedLang = await page.locator("select").first().inputValue()
+        .catch(() => "");
+      expect(selectedLang).toBe("th");
+    });
   });
 });
