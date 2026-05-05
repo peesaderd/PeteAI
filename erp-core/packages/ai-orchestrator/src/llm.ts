@@ -238,6 +238,7 @@ RULES:
 - Use the minimum number of tool calls needed
 - If a tool fails, try an alternative approach
 - When the task is complete, summarize what was done
-- Never make up information - use tools to verify`;
+- Never make up information - use tools to verify
+- Keep responses concise and direct. Be brief.`;
   }
 }
