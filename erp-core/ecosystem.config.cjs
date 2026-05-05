@@ -49,7 +49,11 @@ module.exports = {
         NODE_ENV: "production",
         KB_URL: "http://127.0.0.1:3100",
         SIYUAN_URL: "http://127.0.0.1:54511",
-        SIYUAN_API_TOKEN: "w8qyx729d7pm5zqn"
+        SIYUAN_API_TOKEN: "w8qyx729d7pm5zqn",
+        AGENT_LOOP_ENABLED: "false",
+        LLM_API_KEY: "sk-759b9e5043b4480c84a87eb59d5b814f",
+        LLM_BASE_URL: "https://api.deepseek.com/v1",
+        LLM_MODEL: "deepseek-chat"
       }
     },
     {
@@ -87,7 +91,7 @@ module.exports = {
       cwd: "/root/erp-core/erp-core/packages/telegram-bot",
       script: "dist/index.js",
       env: {
-        TELEGRAM_BOT_TOKEN: "8797457294:AAETDne97sVGENdcd_yrXV8_xSRkshNKwfQ",
+        TELEGRAM_BOT_TOKEN: "8635403645:AAEY_O9EoaStBI6JI8xi3OW38Tgspf8orBI",
         ORCHESTRATOR_URL: "http://127.0.0.1:54516",
         BOT_LANGUAGE: "th",
         WEBHOOK_PORT: "54521",

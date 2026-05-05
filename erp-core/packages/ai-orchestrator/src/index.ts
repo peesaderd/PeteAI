@@ -669,10 +669,9 @@ app.get("/api/tasks", (req, res) => {
   if (process.env.SCHEDULER_ENABLED === "true") {
     scheduler.start();
   }
-  // Agent Loop starts automatically when LLM is configured,
-  // or explicitly via AGENT_LOOP_ENABLED=true
-  const llmConfigured = !!(process.env.LLM_API_KEY && process.env.LLM_API_KEY !== "sk-your-key-here");
-  if (process.env.AGENT_LOOP_ENABLED === "true" || llmConfigured) {
+  // Agent Loop starts only when explicitly enabled via AGENT_LOOP_ENABLED=true
+  // Default is off — chat still works via /api/chat
+  if (process.env.AGENT_LOOP_ENABLED === "true") {
     agentLoop.start();
   }
 
@@ -845,7 +844,7 @@ addMsg('assistant','👋 สวัสดีครับ! ผมคือ **ERP A
       `[AI Orchestrator] Agency API: ${process.env.AGENCY_API_URL || "http://localhost:54515"}`
     );
     console.log(
-      `[AI Orchestrator] Agent Loop: ${agentLoop ? "RUNNING" : "STOPPED"}`
+      `[AI Orchestrator] Agent Loop: ${agentLoop.getStatus().running ? "RUNNING" : "STOPPED"}`
     );
   });
 }

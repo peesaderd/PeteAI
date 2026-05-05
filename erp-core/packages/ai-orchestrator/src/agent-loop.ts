@@ -1205,11 +1205,9 @@ export class AgentLoop {
     // Add user message to memory
     this.chatStore.addMessage(sessionId, "user", message);
 
-    // If LLM not configured, use rule-based fallback
+    // If LLM not configured, return error
     if (!this.llm.isConfigured()) {
-      const response = await this.ruleBasedChatResponse(sessionId, message, agentName);
-      this.chatStore.addMessage(sessionId, "assistant", response);
-      return { response, sessionId, toolResults: [] };
+      return { response: "[LLM Error] AI not configured. Please set LLM_API_KEY and LLM_BASE_URL", sessionId, toolResults: [] };
     }
 
     const agentConfig = this.agents.get(agentName)!;
@@ -1229,9 +1227,8 @@ export class AgentLoop {
         result = await this.llm.chat(llmMessages, toolDefs);
       } catch (err: any) {
         console.error(`[AgentLoop] Chat LLM error:`, err.message);
-        // Don't save non-AI fallback to history — return directly
-        const fallback = await this.ruleBasedChatResponse(sessionId, message, agentName);
-        return { response: fallback, sessionId, toolResults };
+        // Return actual error instead of fake fallback
+        return { response: `[LLM Error] ${err.message}`, sessionId, toolResults };
       }
 
       // Handle tool calls
@@ -1253,10 +1250,9 @@ export class AgentLoop {
       // Content-only response
       if (result.content) {
         if (lastAssistantContent && this.isRepeatedResponse(lastAssistantContent, result.content)) {
-          console.log(`[AgentLoop] Detected repeated response, breaking loop`);
+          console.log(`[AgentLoop] Detected repeated response, returning as-is`);
           this.chatStore.deleteLastMessage(sessionId);
-          // Don't save fallback to history
-          return { response: "รับทราบครับ มีอะไรให้ช่วยไหมครับ", sessionId, toolResults };
+          return { response: result.content, sessionId, toolResults };
         }
         lastAssistantContent = result.content;
         this.chatStore.addMessage(sessionId, "assistant", result.content);
@@ -1273,8 +1269,8 @@ export class AgentLoop {
       break;
     }
 
-    // Final fallback — don't save to history
-    return { response: "รับทราบครับ มีอะไรให้ช่วยไหมครับ", sessionId, toolResults };
+    // Final fallback — return error
+    return { response: "[LLM Error] Failed to get response from AI", sessionId, toolResults };
   }
 
   // ─── Build Chat LLM Messages (manual, avoids buildLLMMessages bugs) ──

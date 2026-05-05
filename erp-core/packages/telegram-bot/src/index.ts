@@ -128,56 +128,59 @@ bot.on(message("text"), async (ctx) => {
 });
 
 // ============================================================
-// Start (polling mode with 409 retry)
+// Start (long-polling mode with 409 recovery)
 // ============================================================
-
-const MAX_RETRIES = 5;
-const RETRY_DELAY_MS = 120_000; // 2 min — wait for old PM2 to exhaust max_restarts
 
 async function wait(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
 async function startBot(): Promise<void> {
-  // Step 1: Set webhook to force-kill any existing polling instance
-  console.log("[TelegramBot] Setting webhook to kill any existing instance...");
-  await bot.telegram.setWebhook("https://example.com/bot");
-  console.log(`[TelegramBot] Webhook set, waiting ${RETRY_DELAY_MS / 1000}s...`);
-  await wait(RETRY_DELAY_MS);
+  // Delete any lingering webhook first
+  await bot.telegram.deleteWebhook({ drop_pending_updates: true });
 
-  // Step 2: Retry loop — delete webhook then try polling
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-    console.log(`[TelegramBot] Attempt ${attempt}/${MAX_RETRIES} — starting polling...`);
+  const info = await bot.telegram.getMe();
+  console.log(`[TelegramBot] @${info.username} (id: ${info.id}) starting — orchestrator: ${ORCHESTRATOR_URL}`);
 
+  let offset = 0;
+  let shuttingDown = false;
+
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log("[TelegramBot] Shutting down...");
+    process.exit(0);
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  // Long-polling with timeout=30s — one connection at a time, no 409 risk
+  // If 409 somehow occurs (e.g. stale instance), wait for it to die and retry
+  while (!shuttingDown) {
     try {
-      await bot.launch();
-      const info = await bot.telegram.getMe();
-      console.log(`[TelegramBot] @${info.username} (id: ${info.id}) polling — orchestrator: ${ORCHESTRATOR_URL}`);
-      return; // success
+      const updates: any = await bot.telegram.callApi("getUpdates", {
+        offset,
+        timeout: 30,
+      });
+
+      if (!updates || updates.length === 0) continue;
+
+      for (const update of updates) {
+        offset = update.update_id + 1;
+        bot.handleUpdate(update);
+      }
     } catch (err: any) {
-      if (err?.message?.includes("409") && attempt < MAX_RETRIES) {
-        console.log(`[TelegramBot] 409 Conflict (attempt ${attempt}/${MAX_RETRIES}) — retrying in ${RETRY_DELAY_MS / 1000}s...`);
-        await wait(RETRY_DELAY_MS);
+      if (err?.description?.includes("409") || err?.message?.includes("409")) {
+        console.log(`[TelegramBot] 409 Conflict — waiting 30s for stale instance to die...`);
+        await wait(30_000);
         continue;
       }
-      throw err; // fatal
+      console.error(`[TelegramBot] Poll error: ${err.message}, retrying in 5s...`);
+      await wait(5_000);
     }
   }
 }
-
-// Graceful shutdown
-process.on("SIGINT", () => {
-  console.log("[TelegramBot] Shutting down...");
-  bot.stop();
-  process.exit(0);
-});
-
-process.on("SIGTERM", () => {
-  console.log("[TelegramBot] Shutting down...");
-  bot.stop();
-  process.exit(0);
-});
 
 startBot().catch((err) => {
   console.error("[TelegramBot] Failed to start:", err.message);
