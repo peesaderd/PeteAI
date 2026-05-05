@@ -832,6 +832,68 @@ export class ToolRouter {
       category: "browser",
     });
     this.registerTool({
+      name: "browser_scroll",
+      description: "Scroll the page by delta pixels. Positive Y = scroll down, negative Y = scroll up.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          deltaX: { type: "number", description: "Horizontal scroll amount" },
+          deltaY: { type: "number", description: "Vertical scroll amount" },
+        },
+        required: ["deltaY"],
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_get_url",
+      description: "Get the current URL of the browser page.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_get_title",
+      description: "Get the title of the current browser page.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_wait_for_selector",
+      description: "Wait for an element to appear on the page. Useful for waiting for content to load.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          selector: { type: "string", description: "CSS selector to wait for" },
+          timeoutMs: { type: "number", description: "Timeout in milliseconds (default 10000)" },
+        },
+        required: ["selector"],
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_health",
+      description: "Check if the browser instance is still alive and responsive.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      category: "browser",
+    });
+    this.registerTool({
+      name: "browser_restart",
+      description: "Force restart the browser instance. Use when browser becomes unresponsive.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      category: "browser",
+    });
+    this.registerTool({
       name: "github_create_issue",
       description: "Create a GitHub issue in the repository. Uses GitHub API.",
       inputSchema: {
@@ -886,15 +948,25 @@ export class ToolRouter {
     }
   }
 
+  // Module-level singleton BrowserUse instance
+  private static browserInstance: any = null;
+
+  private async getBrowser(): Promise<any> {
+    if (!ToolRouter.browserInstance) {
+      const { BrowserUse } = await import("./browser-use.js");
+      ToolRouter.browserInstance = new BrowserUse();
+      await ToolRouter.browserInstance.init();
+    }
+    return ToolRouter.browserInstance;
+  }
+
   private async executeBrowserTool(
     toolName: string,
     args: any
   ): Promise<ToolResult> {
-    // Lazy-import BrowserUse to avoid startup cost when not used
-    const { BrowserUse } = await import("./browser-use.js");
-    const browser = new BrowserUse();
     try {
-      await browser.init();
+      const browser = await this.getBrowser();
+
       switch (toolName) {
         case "browser_navigate": {
           const res = await browser.navigate(args.url);
@@ -923,6 +995,34 @@ export class ToolRouter {
         case "browser_wait": {
           const res = await browser.wait(args.ms);
           return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_scroll": {
+          const res = await browser.scroll(args.deltaX || 0, args.deltaY);
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_get_url": {
+          const res = await browser.getUrl();
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_get_title": {
+          const res = await browser.getTitle();
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_wait_for_selector": {
+          const res = await browser.waitForSelector(args.selector, args.timeoutMs);
+          return { success: res.success, data: res.data, error: res.error };
+        }
+        case "browser_health": {
+          const healthy = await browser.isHealthy();
+          const state = browser.getState();
+          return {
+            success: true,
+            data: { healthy, ...state },
+          };
+        }
+        case "browser_restart": {
+          const ok = await browser.restart();
+          return { success: ok, data: { restarted: ok } };
         }
         case "github_create_issue": {
           const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";

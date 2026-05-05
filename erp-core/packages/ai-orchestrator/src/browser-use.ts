@@ -1,8 +1,11 @@
 // ============================================================
 // BrowserUse - Playwright-based browser automation for AI agents
+// Designed for: revive OpenHands chat, web automation, E2E tests
 // ============================================================
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import fs from "fs";
+import path from "path";
 
 export interface BrowserActionResult {
   success: boolean;
@@ -11,11 +14,12 @@ export interface BrowserActionResult {
   screenshot?: string;
 }
 
-// Module-level singleton browser instance
+const COOKIE_PATH = process.env.BROWSER_COOKIE_PATH || "/tmp/browser-cookies.json";
+
+// ─── Module-level singleton ──────────────────────────────────
 let sharedBrowser: Browser | null = null;
 let sharedContext: BrowserContext | null = null;
 let sharedPage: Page | null = null;
-let sharedUrl: string = "";
 let refCount: number = 0;
 
 async function getSharedPage(): Promise<Page> {
@@ -28,6 +32,17 @@ async function getSharedPage(): Promise<Page> {
       viewport: { width: 1280, height: 720 },
       userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     });
+
+    // Load saved cookies if available
+    if (fs.existsSync(COOKIE_PATH)) {
+      try {
+        const cookies = JSON.parse(fs.readFileSync(COOKIE_PATH, "utf-8"));
+        await sharedContext.addCookies(cookies);
+      } catch (e) {
+        // Ignore corrupt cookie file
+      }
+    }
+
     sharedPage = await sharedContext.newPage();
   }
   return sharedPage!;
@@ -39,15 +54,15 @@ async function closeSharedBrowser(): Promise<void> {
     sharedBrowser = null;
     sharedContext = null;
     sharedPage = null;
-    sharedUrl = "";
   }
 }
 
+// ─── BrowserUse Class ────────────────────────────────────────
+
 export class BrowserUse {
   private page: Page | null = null;
-  private currentUrl: string = "";
 
-  async init(headless: boolean = true): Promise<void> {
+  async init(): Promise<void> {
     refCount++;
     this.page = await getSharedPage();
   }
@@ -60,27 +75,62 @@ export class BrowserUse {
     this.page = null;
   }
 
-  isActive(): boolean {
-    return this.page !== null || sharedPage !== null;
+  /** Check if browser is still alive by evaluating a simple script */
+  async isHealthy(): Promise<boolean> {
+    try {
+      const p = this.page || sharedPage;
+      if (!p) return false;
+      await p.evaluate("1+1");
+      return true;
+    } catch {
+      return false;
+    }
   }
+
+  /** Save current cookies to disk for session persistence */
+  async saveCookies(): Promise<void> {
+    try {
+      const ctx = sharedContext || this.page?.context();
+      if (!ctx) return;
+      const cookies = await ctx.cookies();
+      fs.writeFileSync(COOKIE_PATH, JSON.stringify(cookies, null, 2));
+    } catch {
+      // Silently fail — cookies are optional
+    }
+  }
+
+  /** Force restart browser instance */
+  async restart(): Promise<boolean> {
+    try {
+      await closeSharedBrowser();
+      refCount = 0;
+      this.page = null;
+      await this.init();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ─── Navigation ────────────────────────────────────────────
 
   async navigate(url: string): Promise<BrowserActionResult> {
     try {
       if (!this.page) await this.init();
       const p = this.page!;
       await p.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-      sharedUrl = p.url();
-      this.currentUrl = p.url();
       const title = await p.title();
       const content = await this.getPageText();
       return {
         success: true,
-        data: { url: this.currentUrl, title, contentPreview: content.slice(0, 2000) },
+        data: { url: p.url(), title, contentPreview: content.slice(0, 2000) },
       };
     } catch (err: any) {
       return { success: false, error: "Navigation failed: " + err.message };
     }
   }
+
+  // ─── Click ─────────────────────────────────────────────────
 
   async click(selector: string): Promise<BrowserActionResult> {
     try {
@@ -98,6 +148,8 @@ export class BrowserUse {
     }
   }
 
+  // ─── Fill ──────────────────────────────────────────────────
+
   async fill(selector: string, value: string): Promise<BrowserActionResult> {
     try {
       if (!this.page) return { success: false, error: "Browser not initialized" };
@@ -108,6 +160,8 @@ export class BrowserUse {
       return { success: false, error: "Fill failed: " + err.message };
     }
   }
+
+  // ─── Screenshot ────────────────────────────────────────────
 
   async screenshot(fullPage: boolean = false): Promise<BrowserActionResult> {
     try {
@@ -121,6 +175,8 @@ export class BrowserUse {
       return { success: false, error: "Screenshot failed: " + err.message };
     }
   }
+
+  // ─── Read Page ─────────────────────────────────────────────
 
   async readPage(): Promise<BrowserActionResult> {
     try {
@@ -136,6 +192,8 @@ export class BrowserUse {
     }
   }
 
+  // ─── Evaluate JS ───────────────────────────────────────────
+
   async evaluate(script: string): Promise<BrowserActionResult> {
     try {
       if (!this.page) return { success: false, error: "Browser not initialized" };
@@ -145,6 +203,8 @@ export class BrowserUse {
       return { success: false, error: "Evaluate failed: " + err.message };
     }
   }
+
+  // ─── Wait ──────────────────────────────────────────────────
 
   async wait(ms: number): Promise<BrowserActionResult> {
     try {
@@ -156,18 +216,79 @@ export class BrowserUse {
     }
   }
 
-  getState(): { active: boolean; url: string } {
-    return { active: this.isActive(), url: this.currentUrl };
+  // ─── Scroll ────────────────────────────────────────────────
+
+  async scroll(deltaX: number, deltaY: number): Promise<BrowserActionResult> {
+    try {
+      if (!this.page) return { success: false, error: "Browser not initialized" };
+      await this.page.evaluate(({ dx, dy }) => window.scrollBy(dx, dy), { dx: deltaX, dy: deltaY });
+      await this.page.waitForTimeout(300);
+      return { success: true, data: { scrolled: { x: deltaX, y: deltaY } } };
+    } catch (err: any) {
+      return { success: false, error: "Scroll failed: " + err.message };
+    }
   }
+
+  // ─── Get Current URL ───────────────────────────────────────
+
+  async getUrl(): Promise<BrowserActionResult> {
+    try {
+      if (!this.page) return { success: false, error: "Browser not initialized" };
+      return { success: true, data: { url: this.page.url() } };
+    } catch (err: any) {
+      return { success: false, error: "getUrl failed: " + err.message };
+    }
+  }
+
+  // ─── Get Page Title ────────────────────────────────────────
+
+  async getTitle(): Promise<BrowserActionResult> {
+    try {
+      if (!this.page) return { success: false, error: "Browser not initialized" };
+      const title = await this.page.title();
+      return { success: true, data: { title } };
+    } catch (err: any) {
+      return { success: false, error: "getTitle failed: " + err.message };
+    }
+  }
+
+  // ─── Wait for Selector ─────────────────────────────────────
+
+  async waitForSelector(selector: string, timeoutMs: number = 10000): Promise<BrowserActionResult> {
+    try {
+      if (!this.page) return { success: false, error: "Browser not initialized" };
+      await this.page.waitForSelector(selector, { timeout: timeoutMs });
+      return { success: true, data: { selector, found: true } };
+    } catch (err: any) {
+      return { success: false, error: `waitForSelector failed: ${err.message}` };
+    }
+  }
+
+  // ─── State ─────────────────────────────────────────────────
+
+  getState(): { active: boolean; url: string } {
+    const p = this.page || sharedPage;
+    return {
+      active: p !== null && !p.isClosed(),
+      url: p ? p.url() : "",
+    };
+  }
+
+  // ─── Private Helpers ───────────────────────────────────────
 
   private async getPageText(): Promise<string> {
     const p = this.page || sharedPage;
-    if (!p) return "";
-    return await p.evaluate(() => {
-      const main = document.querySelector("main") || document.body;
-      const clone = main.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll("script, style, nav, footer, header, iframe, svg").forEach((el) => el.remove());
-      return clone.innerText.replace(/\s+/g, " ").trim();
-    });
+    if (!p || p.isClosed()) return "";
+    try {
+      return await p.evaluate(() => {
+        const main = document.querySelector("main") || document.body;
+        if (!main) return "";
+        const clone = main.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll("script, style, nav, footer, header, iframe, svg").forEach((el) => el.remove());
+        return clone.innerText.replace(/\s+/g, " ").trim();
+      });
+    } catch {
+      return "";
+    }
   }
 }
