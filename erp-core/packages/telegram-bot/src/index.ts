@@ -128,19 +128,45 @@ bot.on(message("text"), async (ctx) => {
 });
 
 // ============================================================
-// Start (polling mode)
+// Start (polling mode with 409 retry)
 // ============================================================
 
-async function startBot() {
+const MAX_RETRIES = 10;
+const RETRY_DELAY_MS = 15_000;
+
+async function wait(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function startBot(retries = 0): Promise<void> {
   // Remove webhook first to ensure clean polling start
   await bot.telegram.deleteWebhook({ drop_pending_updates: true });
   console.log("[TelegramBot] Webhook removed, starting polling...");
 
-  // Start polling
-  await bot.launch();
+  try {
+    // Start polling
+    await bot.launch();
 
-  const info = await bot.telegram.getMe();
-  console.log(`[TelegramBot] @${info.username} (id: ${info.id}) polling — orchestrator: ${ORCHESTRATOR_URL}`);
+    const info = await bot.telegram.getMe();
+    console.log(`[TelegramBot] @${info.username} (id: ${info.id}) polling — orchestrator: ${ORCHESTRATOR_URL}`);
+  } catch (err: any) {
+    if (err?.message?.includes("409") && retries < MAX_RETRIES) {
+      console.log(`[TelegramBot] 409 Conflict (attempt ${retries + 1}/${MAX_RETRIES}) — setting webhook to kill old instance...`);
+
+      // Set webhook to force-kill the old polling instance
+      await bot.telegram.setWebhook("https://example.com/bot");
+      console.log(`[TelegramBot] Webhook set, waiting ${RETRY_DELAY_MS / 1000}s for old instance to die...`);
+      await wait(RETRY_DELAY_MS);
+
+      // Delete webhook and retry
+      await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+      console.log("[TelegramBot] Webhook removed, retrying...");
+      return startBot(retries + 1);
+    }
+
+    // Give up
+    throw err;
+  }
 }
 
 // Graceful shutdown
