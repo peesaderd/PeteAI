@@ -138,34 +138,31 @@ async function wait(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function startBot(retries = 0): Promise<void> {
-  // Remove webhook first to ensure clean polling start
-  await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-  console.log("[TelegramBot] Webhook removed, starting polling...");
+async function startBot(): Promise<void> {
+  // Step 1: Set webhook to force-kill any existing polling instance
+  console.log("[TelegramBot] Setting webhook to kill any existing instance...");
+  await bot.telegram.setWebhook("https://example.com/bot");
+  console.log(`[TelegramBot] Webhook set, waiting ${RETRY_DELAY_MS / 1000}s...`);
+  await wait(RETRY_DELAY_MS);
 
-  try {
-    // Start polling
-    await bot.launch();
+  // Step 2: Retry loop — delete webhook then try polling
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    console.log(`[TelegramBot] Attempt ${attempt}/${MAX_RETRIES} — starting polling...`);
 
-    const info = await bot.telegram.getMe();
-    console.log(`[TelegramBot] @${info.username} (id: ${info.id}) polling — orchestrator: ${ORCHESTRATOR_URL}`);
-  } catch (err: any) {
-    if (err?.message?.includes("409") && retries < MAX_RETRIES) {
-      console.log(`[TelegramBot] 409 Conflict (attempt ${retries + 1}/${MAX_RETRIES}) — setting webhook to kill old instance...`);
-
-      // Set webhook to force-kill the old polling instance
-      await bot.telegram.setWebhook("https://example.com/bot");
-      console.log(`[TelegramBot] Webhook set, waiting ${RETRY_DELAY_MS / 1000}s for old instance to die...`);
-      await wait(RETRY_DELAY_MS);
-
-      // Delete webhook and retry
-      await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-      console.log("[TelegramBot] Webhook removed, retrying...");
-      return startBot(retries + 1);
+    try {
+      await bot.launch();
+      const info = await bot.telegram.getMe();
+      console.log(`[TelegramBot] @${info.username} (id: ${info.id}) polling — orchestrator: ${ORCHESTRATOR_URL}`);
+      return; // success
+    } catch (err: any) {
+      if (err?.message?.includes("409") && attempt < MAX_RETRIES) {
+        console.log(`[TelegramBot] 409 Conflict (attempt ${attempt}/${MAX_RETRIES}) — retrying in ${RETRY_DELAY_MS / 1000}s...`);
+        await wait(RETRY_DELAY_MS);
+        continue;
+      }
+      throw err; // fatal
     }
-
-    // Give up
-    throw err;
   }
 }
 
