@@ -1,15 +1,18 @@
 // ============================================================
 // Telegram Bot — Bridges Telegram messages to AI Orchestrator
-// Uses Telegraf (polling mode), forwards all messages to /api/chat
+// Uses Telegraf (webhook mode), forwards all messages to /api/chat
 // ============================================================
 
 import "dotenv/config";
 import { Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
+import * as http from "http";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const ORCHESTRATOR_URL = (process.env.ORCHESTRATOR_URL || "http://127.0.0.1:54516").replace(/\/+$/, "");
 const BOT_LANGUAGE = process.env.BOT_LANGUAGE || "th";
+const WEBHOOK_PORT = parseInt(process.env.WEBHOOK_PORT || "54521", 10);
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH || "/webhook";
 
 if (!BOT_TOKEN) {
   console.error("[TelegramBot] TELEGRAM_BOT_TOKEN is required");
@@ -59,11 +62,6 @@ async function callOrchestrator(
 // ============================================================
 
 const bot = new Telegraf(BOT_TOKEN);
-
-// Log bot info on launch
-bot.telegram.getMe().then((info) => {
-  console.log(`[TelegramBot] @${info.username} (id: ${info.id}) started`);
-});
 
 // Handle /start
 bot.command("start", async (ctx) => {
@@ -133,20 +131,74 @@ bot.on(message("text"), async (ctx) => {
 });
 
 // ============================================================
-// Start (polling mode)
+// Start (webhook mode)
 // ============================================================
+
+// Create HTTP server for webhook
+const server = http.createServer(async (req, res) => {
+  // Health check
+  if (req.url === "/health" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, service: "telegram-bot" }));
+    return;
+  }
+
+  // Webhook endpoint
+  if (req.url === WEBHOOK_PATH && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      try {
+        // Parse update and pass to Telegraf
+        const update = JSON.parse(body);
+        bot.handleUpdate(update);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        console.error("[TelegramBot] Webhook parse error:", err);
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "Invalid JSON" }));
+      }
+    });
+    return;
+  }
+
+  // 404 for everything else
+  res.writeHead(404);
+  res.end();
+});
+
+server.listen(WEBHOOK_PORT, "0.0.0.0", () => {
+  console.log(`[TelegramBot] Webhook server listening on port ${WEBHOOK_PORT}`);
+});
 
 process.on("SIGINT", () => {
   console.log("[TelegramBot] Shutting down...");
   bot.stop();
+  server.close();
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
   console.log("[TelegramBot] Shutting down...");
   bot.stop();
+  server.close();
   process.exit(0);
 });
 
-bot.launch({ dropPendingUpdates: true });
-console.log(`[TelegramBot] Polling started — orchestrator: ${ORCHESTRATOR_URL}`);
+// Set webhook on Telegram
+const publicUrl = process.env.PUBLIC_URL || "";
+if (publicUrl) {
+  const webhookUrl = `${publicUrl.replace(/\/+$/, "")}${WEBHOOK_PATH}`;
+  bot.telegram.setWebhook(webhookUrl, { drop_pending_updates: true }).then(() => {
+    console.log(`[TelegramBot] Webhook set to ${webhookUrl}`);
+  }).catch((err) => {
+    console.error(`[TelegramBot] Failed to set webhook:`, err.message);
+  });
+} else {
+  console.log(`[TelegramBot] No PUBLIC_URL set — webhook not configured`);
+}
+
+bot.telegram.getMe().then((info) => {
+  console.log(`[TelegramBot] @${info.username} (id: ${info.id}) ready — orchestrator: ${ORCHESTRATOR_URL}`);
+});

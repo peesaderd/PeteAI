@@ -89,7 +89,9 @@ module.exports = {
       env: {
         TELEGRAM_BOT_TOKEN: "8797457294:AAETDne97sVGENdcd_yrXV8_xSRkshNKwfQ",
         ORCHESTRATOR_URL: "http://127.0.0.1:54516",
-        BOT_LANGUAGE: "th"
+        BOT_LANGUAGE: "th",
+        WEBHOOK_PORT: "54521",
+        WEBHOOK_PATH: "/webhook"
       }
     }
   ]
