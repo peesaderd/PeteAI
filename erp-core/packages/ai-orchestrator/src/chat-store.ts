@@ -146,7 +146,7 @@ export class ChatStore {
   getContext(sessionId: string, maxMessages = 20): ChatMessage[] {
     const rows = this.d
       .prepare(
-        "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC, id ASC LIMIT ?"
+        "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?"
       )
       .all(sessionId, maxMessages) as any[];
     return rows.reverse().map((r) => this.rowToMessage(r));

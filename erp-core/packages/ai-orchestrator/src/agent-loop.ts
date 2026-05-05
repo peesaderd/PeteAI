@@ -1237,7 +1237,13 @@ export class AgentLoop {
           toolCalls: JSON.stringify(result.toolCalls),
         });
         for (const tc of result.toolCalls) {
-          const toolResult = await this.toolRouter.executeTool(tc.name, tc.args);
+          let toolResult: any;
+          try {
+            toolResult = await this.toolRouter.executeTool(tc.name, tc.args);
+          } catch (err: any) {
+            toolResult = { error: err.message || "Tool execution failed" };
+            console.error(`[AgentLoop] Tool ${tc.name} failed:`, err.message);
+          }
           this.chatStore.addMessage(sessionId, "tool", JSON.stringify(toolResult), {
             toolCalls: JSON.stringify([tc]),
             toolResults: JSON.stringify([toolResult]),
