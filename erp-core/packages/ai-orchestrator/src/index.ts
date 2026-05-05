@@ -99,7 +99,41 @@ async function main() {
 
       if (llmConfigured) {
         // Direct LLM mode
-        const systemPrompt = agentPrompts[agentName] || agentPrompts.rd;
+        let systemPrompt = agentPrompts[agentName] || agentPrompts.rd;
+        
+        // RAG: Search Knowledge Base for relevant context
+        try {
+          const kbUrl = process.env.KB_URL || "http://localhost:3100";
+          const searchRes = await fetch(kbUrl + "/api/search?q=" + encodeURIComponent(message) + "&limit=3", {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+          });
+          if (searchRes.ok) {
+            const searchData = await searchRes.json();
+            if (searchData && searchData.length > 0) {
+              const contexts: string[] = [];
+              for (const doc of searchData.slice(0, 3)) {
+                try {
+                  const docRes = await fetch(kbUrl + "/api/documents/" + doc.id, {
+                    method: "GET",
+                    headers: { "Content-Type": "application/json" },
+                  });
+                  if (docRes.ok) {
+                    const docData = await docRes.json();
+                    const docContent = (docData.content || "").slice(0, 1000);
+                    if (docContent.trim()) {
+                      contexts.push("--- " + doc.title + " ---\n" + docContent);
+                    }
+                  }
+                } catch {}
+              }
+              if (contexts.length > 0) {
+                systemPrompt += "\n\n=== ความรู้จาก Knowledge Base ===\n" + contexts.join("\n\n") + "\n=== จบความรู้ ===";
+              }
+            }
+          }
+        } catch {}
+        
         const history = memory.getConversationContext(sid, 20);
         const llmMessages: LLMMessage[] = [
           { role: "system", content: systemPrompt },

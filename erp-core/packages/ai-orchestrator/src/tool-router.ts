@@ -1125,54 +1125,69 @@ export class ToolRouter {
         const cacheKey = "siyuan_search:" + keyword.toLowerCase();
         const cached = this.siyuanCache.get(cacheKey);
         if (cached) return { success: true, data: cached.data, fromCache: true };
-        // Search via SiYuan API: use sql query to search document titles and content
-        const siyuanUrl4 = process.env.SIYUAN_URL || "http://siyuan:54511";
-        const siyuanToken4 = process.env.SIYUAN_TOKEN || "";
-        // Search by keyword in document blocks
-        const res4 = await fetch(`${siyuanUrl4}/api/query/sql`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Token ${siyuanToken4}`,
-          },
-          body: JSON.stringify({
-            stmt: `SELECT b.id, b.content, b.type, b.root_id, b.updated FROM blocks b WHERE b.content LIKE %% AND b.type = d LIMIT ${limit}`
-          }),
-        });
-        if (!res4.ok) {
-          // Fallback: list doc tree and filter by title
-          const fallbackRes = await fetch(`${siyuanUrl4}/api/filetree/listDocTree`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Token ${siyuanToken4}`,
-            },
-            body: JSON.stringify({ notebook: _args.notebookId || "" }),
+        // Use Knowledge Base API (synced from SiYuan) instead of direct SiYuan SQL
+        const kbUrl = process.env.KB_URL || "http://localhost:3100";
+        try {
+          const searchRes = await fetch(`${kbUrl}/api/search?q=${encodeURIComponent(keyword)}&limit=${limit}`, {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
           });
-          const fallbackData = await fallbackRes.json();
-          const docs = (fallbackData.data || []).filter((d: any) =>
-            d.title && d.title.toLowerCase().includes(keyword.toLowerCase())
-          ).slice(0, limit).map((d: any) => ({
-            id: d.id,
-            title: d.title,
-            relevance: 1.0,
+          if (!searchRes.ok) throw new Error(`KB search failed: ${searchRes.status}`);
+          const searchData = await searchRes.json();
+          // Get full content for each result
+          const docs = await Promise.all((searchData || []).slice(0, limit).map(async (doc: any) => {
+            try {
+              const docRes = await fetch(`${kbUrl}/api/documents/${doc.id}`, {
+                method: "GET",
+                headers: { "Content-Type": "application/json" },
+              });
+              if (docRes.ok) {
+                const docData = await docRes.json();
+                return {
+                  id: doc.id,
+                  title: doc.title,
+                  content: (docData.content || "").slice(0, 500),
+                  tags: JSON.parse(doc.tags || "[]"),
+                  updated: doc.updated_at,
+                  relevance: 1.0,
+                };
+              }
+            } catch {}
+            return { id: doc.id, title: doc.title, content: "", tags: [], relevance: 0.5 };
           }));
           const result = { success: true, data: docs };
-          this.siyuanCache.set(cacheKey, result);
+          this.siyuanCache.set(cacheKey, result, 2 * 60 * 1000); // 2 min TTL
           return result;
+        } catch (err: any) {
+          // Fallback: try direct SiYuan filetree search
+          try {
+            const siyuanUrl4 = process.env.SIYUAN_URL || "http://siyuan:54511";
+            const siyuanToken4 = process.env.SIYUAN_TOKEN || "";
+            const fallbackRes = await fetch(`${siyuanUrl4}/api/filetree/listDocTree`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Token ${siyuanToken4}`,
+              },
+              body: JSON.stringify({ notebook: _args.notebookId || "" }),
+            });
+            const fallbackData = await fallbackRes.json();
+            const docs = (fallbackData.data || []).filter((d: any) =>
+              d.title && d.title.toLowerCase().includes(keyword.toLowerCase())
+            ).slice(0, limit).map((d: any) => ({
+              id: d.id,
+              title: d.title,
+              content: "",
+              tags: [],
+              relevance: 1.0,
+            }));
+            const result = { success: true, data: docs };
+            this.siyuanCache.set(cacheKey, result);
+            return result;
+          } catch (fallbackErr: any) {
+            return { success: false, error: `Search failed: ${err.message}, fallback also failed: ${fallbackErr.message}` };
+          }
         }
-        const data4 = await res4.json();
-        // Transform results
-        const results = (data4.data || []).map((row: any) => ({
-          id: row.root_id || row.id,
-          content: row.content?.slice(0, 200) || "",
-          type: row.type,
-          updated: row.updated,
-          relevance: 1.0,
-        }));
-        const result = { success: true, data: results };
-        this.siyuanCache.set(cacheKey, result, 2 * 60 * 1000); // 2 min TTL for search
-        return result;
       }
       // ============================================================
       // Task Manager tools
