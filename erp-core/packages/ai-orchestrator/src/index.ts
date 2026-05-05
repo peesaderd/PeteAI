@@ -87,7 +87,7 @@ async function main() {
       const llmConfigured = !!(process.env.LLM_API_KEY && process.env.LLM_API_KEY !== "sk-your-key-here");
 
       const agentPrompts: Record<string, string> = {
-        rd: "You are an R&D AI agent. Respond concisely and naturally without introducing yourself. Keep responses brief and to the point.",
+        rd: "You are a helpful ERP assistant. Answer questions about products, orders, inventory, production, HR, and finance. Respond in Thai, be concise.",
         brainstorm: "You are a Brainstorm AI agent. Your role is to generate creative ideas and facilitate brainstorming sessions.",
         production: "You are a Production AI agent. Your role is to oversee production processes, optimize workflows, and ensure quality control.",
         design: "You are a Design AI agent. Your role is to create beautiful and functional designs, provide design feedback, and maintain design systems.",
