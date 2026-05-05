@@ -70,7 +70,7 @@ services:
     - knowledge-base
     environment:
     - SYNC_PORT=54513
-    - SIYUAN_URL=http://siyuan:6806
+    - SIYUAN_URL=http://siyuan:54511
     - SIYUAN_API_TOKEN=9w4oqxucqvq1o8sd
     - KB_URL=http://knowledge-base:3100
     - SYNC_INTERVAL=60000
@@ -87,7 +87,7 @@ services:
     - ai-orchestrator
     - redis
     environment:
-    - SIYUAN_URL=http://siyuan:6806
+    - SIYUAN_URL=http://siyuan:54511
     - SIYUAN_TOKEN=9w4oqxucqvq1o8sd
     - REPO_ROOT=/repo
     - SYSTEM_AGENT_PORT=54520

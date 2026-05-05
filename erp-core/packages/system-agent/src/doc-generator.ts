@@ -5,7 +5,7 @@ import { TEMPLATES, DOC_TYPES, DOC_LABELS, DocType } from "./templates.js";
 export type { DocType };
 
 const REPO_ROOT = process.env.REPO_ROOT || "/root/erp-core";
-const SIYUAN_URL = process.env.SIYUAN_URL || "http://siyuan:6806";
+const SIYUAN_URL = process.env.SIYUAN_URL || "http://siyuan:54511";
 const SIYUAN_TOKEN = process.env.SIYUAN_TOKEN || "";
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || "http://localhost:54516";
 const DOCS_DIR = process.env.DOCS_DIR || "/app/docs";

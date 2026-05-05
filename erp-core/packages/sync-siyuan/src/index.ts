@@ -10,7 +10,7 @@ import fs from "fs";
 import path from "path";
 
 const PORT = parseInt(process.env.SYNC_PORT || "54513", 10);
-const SIYUAN_URL = process.env.SIYUAN_URL || "http://siyuan:6806";
+const SIYUAN_URL = process.env.SIYUAN_URL || "http://siyuan:54511";
 const SIYUAN_TOKEN = process.env.SIYUAN_API_TOKEN || "";
 const KB_URL = process.env.KB_URL || "http://knowledge-base:3100";
 const SYNC_INTERVAL_MS = parseInt(process.env.SYNC_INTERVAL || "60000", 10);
