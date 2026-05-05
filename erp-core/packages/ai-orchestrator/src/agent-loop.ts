@@ -1301,8 +1301,8 @@ export class AgentLoop {
       });
     }
 
-    // Conversation history (last 10 messages)
-    const messages = this.memory.getConversationContext(sessionId, 10);
+    // Conversation history (last 20 messages — enough to cover multi-tool sequences)
+    const messages = this.memory.getConversationContext(sessionId, 20);
     for (const msg of messages) {
       if (msg.role === "system") continue;
 

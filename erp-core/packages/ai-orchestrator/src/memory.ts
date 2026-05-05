@@ -205,7 +205,13 @@ export class MemoryStore {
   }
 
   getConversationContext(sessionId: string, maxMessages = 20): Message[] {
-    return this.getSessionMessages(sessionId, maxMessages);
+    // Use DESC + reverse to get the LAST N messages (not the first N)
+    let sql = "SELECT * FROM messages WHERE session_id = ?";
+    const params: any[] = [sessionId];
+    sql += " ORDER BY created_at DESC LIMIT ?";
+    params.push(maxMessages);
+    const rows = this.d.prepare(sql).all(...params) as any[];
+    return rows.reverse().map((r) => this.rowToMessage(r));
   }
 
   setAgentState(
