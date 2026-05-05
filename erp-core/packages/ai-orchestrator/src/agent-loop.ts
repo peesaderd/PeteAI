@@ -177,6 +177,20 @@ Use http_request to gather financial data, siyuan_get_doc to read project requir
     maxConcurrentTasks: 2,
     maxIterationsPerTask: 15,
   },
+  {
+    name: "erp",
+    role: "ERP Assistant - chat-based assistant for ERP Core system operations, information retrieval, and task execution",
+    systemPrompt: `You are the ERP Assistant. Your job is to:
+1. Answer questions about the ERP Core system
+2. Execute tasks using available tools
+3. Retrieve and present information from the knowledge base
+4. Help users manage their workflow
+5. Provide clear, concise responses in Thai or English as requested
+
+Use kb_search/kb_read to find information, http_request to interact with ERP APIs, execute_command for system tasks, and agency_delegate_task to delegate complex tasks to specialized agents (rd, production, qa, devops, etc.).`,
+    maxConcurrentTasks: 5,
+    maxIterationsPerTask: 10,
+  },
 ];
 
 // ─── AgentLoop Class ─────────────────────────────────────────
@@ -1159,6 +1173,150 @@ export class AgentLoop {
     console.log(
       `[AgentLoop] 🤖 ${agentName} claimed task "${task.title}" (${task.id})`
     );
+  }
+
+  // ─── Process Chat Message (synchronous) ────────────────────
+  // Used by the Chat API to process messages through the Agent Loop
+  // instead of calling the LLM directly.
+
+  async processChatMessage(params: {
+    sessionId: string;
+    message: string;
+    agent: string;
+    language: string;
+    knowledgeContext?: string;
+  }): Promise<{
+    response: string;
+    sessionId: string;
+    toolResults: any[];
+  }> {
+    const { sessionId, message, agent, language, knowledgeContext } = params;
+    const agentName = this.agents.has(agent) ? agent : "erp";
+
+    // Ensure session exists
+    let session = this.memory.getSession(sessionId);
+    if (!session) {
+      session = this.memory.createSessionWithId(sessionId, agentName, "chat");
+    }
+
+    // Add user message to memory
+    this.memory.addMessage(sessionId, "user", message);
+
+    // If LLM not configured, use rule-based fallback
+    if (!this.llm.isConfigured()) {
+      const response = await this.ruleBasedChatResponse(sessionId, message, agentName);
+      this.memory.addMessage(sessionId, "assistant", response);
+      return { response, sessionId, toolResults: [] };
+    }
+
+    // Create an active task for this chat message
+    const taskId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const agentConfig = this.agents.get(agentName)!;
+
+    const activeTask: ActiveTask = {
+      id: taskId,
+      agentName,
+      sessionId,
+      iteration: 0,
+      phase: 0,
+      taskData: {
+        title: message.slice(0, 100),
+        description: message,
+        inputData: { knowledgeContext },
+        sourceRole: "user",
+        priority: "high",
+      },
+      startedAt: Date.now(),
+      status: "running",
+    };
+
+    this.activeTasks.set(taskId, activeTask);
+
+    try {
+      // Run iterations until completion or max iterations
+      let shouldContinue = true;
+      let maxIter = Math.min(agentConfig.maxIterationsPerTask, 5); // Cap chat at 5 iterations
+
+      while (shouldContinue && activeTask.status === "running") {
+        activeTask.iteration++;
+        if (activeTask.iteration > maxIter) {
+          activeTask.status = "completed";
+          break;
+        }
+
+        const messages = this.memory.getConversationContext(sessionId, 30);
+        shouldContinue = await this.thinkAndAct(activeTask, messages);
+      }
+
+      // Get the final assistant response
+      const finalMessages = this.memory.getConversationContext(sessionId, 10);
+      let response = "";
+      const toolResults: any[] = [];
+
+      for (let i = finalMessages.length - 1; i >= 0; i--) {
+        const msg = finalMessages[i];
+        if (msg.role === "assistant" && msg.content) {
+          response = msg.content;
+          break;
+        }
+      }
+
+      // Collect tool results from the last few messages
+      for (const msg of finalMessages.slice(-6)) {
+        if (msg.toolResults) {
+          try {
+            const parsed = JSON.parse(msg.toolResults);
+            toolResults.push(...parsed);
+          } catch {}
+        }
+      }
+
+      if (!response) {
+        response = "I processed your request but couldn't generate a response.";
+      }
+
+      return { response, sessionId, toolResults };
+    } catch (err: any) {
+      console.error(`[AgentLoop] processChatMessage error:`, err.message);
+      // Fallback
+      const fallback = await this.ruleBasedChatResponse(sessionId, message, agentName);
+      this.memory.addMessage(sessionId, "assistant", fallback);
+      return { response: fallback, sessionId, toolResults: [] };
+    } finally {
+      this.activeTasks.delete(taskId);
+    }
+  }
+
+  // ─── Rule-Based Chat Response (Fallback) ───────────────────
+
+  private async ruleBasedChatResponse(
+    sessionId: string,
+    message: string,
+    agentName: string
+  ): Promise<string> {
+    const msg = message.toLowerCase();
+
+    if (msg.includes("hello") || msg.includes("hi") || msg.includes("สวัสดี")) {
+      return "รับทราบครับ มีอะไรให้ช่วยไหมครับ";
+    }
+    if (msg.includes("tool") || msg.includes("what can you do") || msg.includes("help")) {
+      const tools = this.toolRouter.getTools();
+      return "I have access to the following tools:\n" +
+        tools.map((t) => `  - **${t.name}**: ${t.description}`).join("\n");
+    }
+    if (msg.includes("research") || msg.includes("search") || msg.includes("find") || msg.includes("ค้นหา")) {
+      return "กำลังค้นหาข้อมูลให้ครับ";
+    }
+    if (msg.includes("status") || msg.includes("health") || msg.includes("สถานะ")) {
+      try {
+        const health = await this.toolRouter.executeTool("orchestrator_health", {});
+        return "**System Status:**\n```json\n" + JSON.stringify(health.data, null, 2) + "\n```";
+      } catch {
+        return "System is running.";
+      }
+    }
+
+    return "รับทราบครับ มีอะไรให้ช่วยเพิ่มเติมไหมครับ";
   }
 
   // ─── Finalize Task ─────────────────────────────────────────

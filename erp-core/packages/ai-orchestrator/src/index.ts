@@ -9,7 +9,7 @@ import { MemoryStore } from "./memory.js";
 import { ToolRouter } from "./tool-router.js";
 import { WebhookHandler, type WebhookEvent } from "./webhooks.js";
 import { Scheduler } from "./scheduler.js";
-import { LLMClient, type LLMMessage, type LLMToolDef } from "./llm.js";
+import { LLMClient } from "./llm.js";
 import { AgentLoop } from "./agent-loop.js";
 import { RedisTaskQueue } from "./redis-queue.js";
 import { v4 as uuidv4 } from "uuid";
@@ -78,7 +78,7 @@ async function main() {
 
   app.post("/api/chat", async (req, res) => {
     try {
-      const { sessionId, message, agent = "rd", language = "th" } = req.body;
+      const { sessionId, message, agent = "erp", language = "th" } = req.body;
       if (!message) {
         return res.status(400).json({ error: "message is required" });
       }
@@ -90,172 +90,54 @@ async function main() {
       // Generate session ID if not provided
       const sid = sessionId || "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
 
-      // Check if LLM is configured
-      const llmConfigured = !!(process.env.LLM_API_KEY && process.env.LLM_API_KEY !== "sk-your-key-here");
-
-      const agentPrompts: Record<string, string> = {
-        erp: "คุณคือ ERP Assistant ใช้ภาษาไทย สั้น ตรงประเด็น กฎ: 1. ห้ามเดา/ตอบจากความจำ ต้องใช้ Tools ทุกครั้ง 2. ใช้ Tools ทุกครั้งที่มีคำถามข้อมูล 3. ตอบสั้นๆ กระชับ 4. ถ้า Tool Error บอกตรงๆ ว่าข้อมูลไม่มี",
-      };;
-
-      if (llmConfigured) {
-        // Direct LLM mode
-        let systemPrompt = agentPrompts[agentName] || agentPrompts.rd;
-        
-        // RAG: Search Knowledge Base for relevant context
-        try {
-          const kbUrl = process.env.KB_URL || "http://localhost:3100";
-          const searchRes = await fetch(kbUrl + "/api/search?q=" + encodeURIComponent(message) + "&limit=3", {
-            method: "GET",
-            headers: { "Content-Type": "application/json" },
-          });
-          if (searchRes.ok) {
-            const searchData = await searchRes.json();
-            if (searchData && searchData.length > 0) {
-              const contexts: string[] = [];
-              for (const doc of searchData.slice(0, 3)) {
-                try {
-                  const docRes = await fetch(kbUrl + "/api/documents/" + doc.id, {
-                    method: "GET",
-                    headers: { "Content-Type": "application/json" },
-                  });
-                  if (docRes.ok) {
-                    const docData = await docRes.json();
-                    const docContent = (docData.content || "").slice(0, 1000);
-                    if (docContent.trim()) {
-                      contexts.push("--- " + doc.title + " ---\n" + docContent);
-                    }
+      // RAG: Search Knowledge Base for relevant context (pre-processing)
+      let knowledgeContext = "";
+      try {
+        const kbUrl = process.env.KB_URL || "http://localhost:3100";
+        const searchRes = await fetch(kbUrl + "/api/search?q=" + encodeURIComponent(message) + "&limit=3", {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          if (searchData && searchData.length > 0) {
+            const contexts: string[] = [];
+            for (const doc of searchData.slice(0, 3)) {
+              try {
+                const docRes = await fetch(kbUrl + "/api/documents/" + doc.id, {
+                  method: "GET",
+                  headers: { "Content-Type": "application/json" },
+                });
+                if (docRes.ok) {
+                  const docData = await docRes.json();
+                  const docContent = (docData.content || "").slice(0, 1000);
+                  if (docContent.trim()) {
+                    contexts.push("--- " + doc.title + " ---\n" + docContent);
                   }
-                } catch {}
-              }
-              if (contexts.length > 0) {
-                systemPrompt += "\n\n=== ความรู้จาก Knowledge Base ===\n" + contexts.join("\n\n") + "\n=== จบความรู้ ===";
-              }
+                }
+              } catch {}
+            }
+            if (contexts.length > 0) {
+              knowledgeContext = contexts.join("\n\n");
             }
           }
-        } catch {}
-        
-        const history = memory.getConversationContext(sid, 20);
-        const llmMessages: LLMMessage[] = [
-          { role: "system", content: systemPrompt },
-          ...history.map((m: any) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          { role: "user", content: message },
-        ];
-
-        if (language === "th") {
-          llmMessages.push({ role: "system", content: "Please respond in Thai language." });
         }
+      } catch {}
 
-        // Get available tools and convert to LLM format
-        const allTools = toolRouter.getTools();
-        const llmTools: LLMToolDef[] = allTools.map((t) => ({
-            type: "function" as const,
-            function: {
-              name: t.name,
-              description: t.description,
-              parameters: t.inputSchema,
-            },
-          }));
-
-        const response = await llm.chat(llmMessages, llmTools.length > 0 ? llmTools : undefined, {
-          maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096", 10),
-          temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.3"),
-        });
-
-        let reply = response.content || "";
-        const toolResults: any[] = [];
-
-        // Handle tool calls if LLM requested them
-        if (response.toolCalls && response.toolCalls.length > 0) {
-          for (const tc of response.toolCalls) {
-            try {
-              const result = await toolRouter.executeTool(tc.name, tc.args);
-              toolResults.push({ name: tc.name, result: result.data || result });
-            } catch (err: any) {
-              toolResults.push({ name: tc.name, error: err.message });
-            }
-          }
-
-          // Send tool results back to LLM for final response
-          const toolMessages: LLMMessage[] = [
-            ...llmMessages,
-            { role: "assistant", content: response.content || "", tool_calls: response.toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.args) } })) },
-            ...toolResults.map((tr, idx) => ({
-              role: "tool" as const,
-              tool_call_id: response.toolCalls![idx]?.id || "",
-              content: JSON.stringify(tr.result),
-            })),
-          ];
-
-          const finalResponse = await llm.chat(toolMessages, undefined, {
-            maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096", 10),
-            temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.3"),
-          });
-          reply = finalResponse.content || reply;
-        }
-
-        if (!reply) {
-          reply = "I apologize, but I was unable to generate a response.";
-        }
-
-        // Ensure session exists
-        if (!memory.getSession(sid)) {
-          memory.createSessionWithId(sid, agentName, "chat");
-        }
-
-        // Store in memory
-        memory.addMessage(sid, "user", message);
-        memory.addMessage(sid, "assistant", reply);
-
-        return res.json({
-          sessionId: sid,
-          response: reply,
-          agent: agentName,
-          toolResults,
-        });
-      }
-
-      // Rule-based fallback
-      const msg = message.toLowerCase();
-      let response = "";
-
-      if (msg.includes("hello") || msg.includes("hi") || msg.includes("\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35")) {
-        response = "รับทราบครับ มีอะไรให้ช่วยไหมครับ";
-      } else if (msg.includes("tool") || msg.includes("what can you do") || msg.includes("help")) {
-        const tools = toolRouter.getTools();
-        response = "I have access to the following tools:\n" +
-          tools.map((t) => "  - **" + t.name + "**: " + t.description).join("\n");
-      } else if (msg.includes("research") || msg.includes("search") || msg.includes("find") || msg.includes("\u0e04\u0e49\u0e19\u0e2b\u0e32")) {
-        response = "กำลังค้นหาข้อมูลให้ครับ";
-      } else if (msg.includes("status") || msg.includes("health") || msg.includes("\u0e2a\u0e16\u0e32\u0e19\u0e30")) {
-        try {
-          const health = await toolRouter.executeTool("orchestrator_health", {});
-          response = "**System Status:**\n\\\`\\\`\\\`json\n" + JSON.stringify(health.data, null, 2) + "\n\\\`\\\`\\\`";
-        } catch {
-          response = "System is running.";
-        }
-      } else {
-        response = "รับทราบครับ มีอะไรให้ช่วยเพิ่มเติมไหมครับ";
-      }
-
-      // Ensure session exists
-      if (!memory.getSession(sid)) {
-        memory.createSessionWithId(sid, agentName, "chat");
-      }
-
-      // Store in memory
-      memory.addMessage(sid, "user", message);
-      memory.addMessage(sid, "assistant", response);
-
-      // Record heartbeat
+      // Process message through Agent Loop
+      const result = await agentLoop.processChatMessage({
+        sessionId: sid,
+        message,
+        agent: agentName,
+        language,
+        knowledgeContext: knowledgeContext || undefined,
+      });
 
       res.json({
-        sessionId: sid,
-        response,
+        sessionId: result.sessionId,
+        response: result.response,
         agent: agentName,
-        toolResults: [],
+        toolResults: result.toolResults,
       });
     } catch (err: any) {
       console.error("[Chat API] Error:", err);
@@ -807,7 +689,10 @@ app.get("/api/tasks", (req, res) => {
   if (process.env.SCHEDULER_ENABLED === "true") {
     scheduler.start();
   }
-  if (process.env.AGENT_LOOP_ENABLED === "true") {
+  // Agent Loop starts automatically when LLM is configured,
+  // or explicitly via AGENT_LOOP_ENABLED=true
+  const llmConfigured = !!(process.env.LLM_API_KEY && process.env.LLM_API_KEY !== "sk-your-key-here");
+  if (process.env.AGENT_LOOP_ENABLED === "true" || llmConfigured) {
     agentLoop.start();
   }
 
@@ -826,7 +711,7 @@ app.get("/api/tasks", (req, res) => {
       `[AI Orchestrator] Agency API: ${process.env.AGENCY_API_URL || "http://localhost:54515"}`
     );
     console.log(
-      `[AI Orchestrator] Agent Loop: ${process.env.AGENT_LOOP_ENABLED === "true" ? "RUNNING" : "STOPPED (set AGENT_LOOP_ENABLED=true to start)"}`
+      `[AI Orchestrator] Agent Loop: ${agentLoop ? "RUNNING" : "STOPPED"}`
     );
   });
 }
