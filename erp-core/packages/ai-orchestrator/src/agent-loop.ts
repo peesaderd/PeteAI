@@ -1472,6 +1472,8 @@ Context: ${JSON.stringify(params.contextData || {}, null, 2)}`,
       if (t.category === "agency") return true;
       // ERP tools for all (read-only access)
       if (t.category === "erp") return true;
+      // Browser tools for all (web automation)
+      if (t.category === "browser") return true;
       return false;
     });
 
