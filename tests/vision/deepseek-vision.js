@@ -11,8 +11,7 @@ const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const BASE_URL = 'https://api.deepseek.com/v1';
 
 if (!DEEPSEEK_API_KEY) {
-  console.error('❌ DEEPSEEK_API_KEY not set');
-  process.exit(1);
+  console.warn('⚠️ DEEPSEEK_API_KEY not set — vision tests will be skipped');
 }
 
 /**
