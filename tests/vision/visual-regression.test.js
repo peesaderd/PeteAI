@@ -10,9 +10,11 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { analyzeUI, PROMPTS } from './deepseek-vision.js';
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// ถ้าไม่มี API Key ให้ skip tests
-const describeWithKey = DEEPSEEK_API_KEY ? describe : describe.skip;
+// ถ้าไม่มี API Key (DeepSeek หรือ Gemini) ให้ skip tests
+const hasApiKey = DEEPSEEK_API_KEY || GEMINI_API_KEY;
+const describeWithKey = hasApiKey ? describe : describe.skip;
 
 describeWithKey('Vision UI Tests', () => {
   let screenshotBase64 = null;

@@ -10,8 +10,9 @@ import { analyzeUI, PROMPTS, runFullUIAudit } from './deepseek-vision.js';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
-// ถ้าไม่มี API Key ให้ skip
-const testWithKey = process.env.DEEPSEEK_API_KEY ? test : test.skip;
+// ถ้าไม่มี API Key (DeepSeek หรือ Gemini) ให้ skip
+const hasApiKey = process.env.DEEPSEEK_API_KEY || process.env.GEMINI_API_KEY;
+const testWithKey = hasApiKey ? test : test.skip;
 
 test.describe('PeteMarket Vision Tests', () => {
   testWithKey('@visual @smoke หน้า Login - ตรวจสอบ UI elements', async ({ page }) => {

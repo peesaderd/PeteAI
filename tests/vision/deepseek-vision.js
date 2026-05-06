@@ -1,27 +1,44 @@
 /**
- * DeepSeek Vision API Client สำหรับ UI Testing
+ * Vision API Client สำหรับ UI Testing
  * ใช้กับ PeteMarket / PeteAI ERP Core
- * 
- * โมเดลที่มี:
- * - deepseek-v4-flash (เร็ว, เหมาะกับ CI)
- * - deepseek-v4-pro (แม่นยำ, spatial reasoning)
+ *
+ * รองรับหลาย provider:
+ * - DeepSeek (DEEPSEEK_API_KEY)
+ * - Gemini 2.5 Flash (GEMINI_API_KEY)
+ * - fallback: ถ้าไม่มี key เลยจะ skip tests
  */
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const BASE_URL = 'https://api.deepseek.com/v1';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-if (!DEEPSEEK_API_KEY) {
-  console.warn('⚠️ DEEPSEEK_API_KEY not set — vision tests will be skipped');
+if (!DEEPSEEK_API_KEY && !GEMINI_API_KEY) {
+  console.warn('⚠️ Neither DEEPSEEK_API_KEY nor GEMINI_API_KEY set — vision tests will be skipped');
+}
+
+/**
+ * เลือก provider ตาม API key ที่มี
+ */
+function getProvider() {
+  if (DEEPSEEK_API_KEY) return 'deepseek';
+  if (GEMINI_API_KEY) return 'gemini';
+  return null;
 }
 
 /**
  * วิเคราะห์ UI จาก screenshot
  * @param {string} imageBase64 - Base64 encoded screenshot
  * @param {string} prompt - คำถามเกี่ยวกับ UI
- * @param {string} model - 'deepseek-v4-flash' | 'deepseek-v4-pro'
+ * @param {string} model - ชื่อโมเดล (deepseek: deepseek-v4-flash | deepseek-v4-pro, gemini: gemini-2.5-flash)
  */
 export async function analyzeUI(imageBase64, prompt, model = 'deepseek-v4-flash') {
-  const response = await fetch(`${BASE_URL}/chat/completions`, {
+  const provider = getProvider();
+
+  if (provider === 'gemini') {
+    return analyzeWithGemini(imageBase64, prompt);
+  }
+
+  // Default: DeepSeek
+  const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
@@ -42,7 +59,7 @@ export async function analyzeUI(imageBase64, prompt, model = 'deepseek-v4-flash'
         }
       ],
       max_tokens: 1024,
-      temperature: 0.1,  // ต่ำเพื่อผลลัพธ์ consistent
+      temperature: 0.1,
     })
   });
 
@@ -56,6 +73,42 @@ export async function analyzeUI(imageBase64, prompt, model = 'deepseek-v4-flash'
     analysis: data.choices[0].message.content,
     model: data.model,
     usage: data.usage,
+  };
+}
+
+/**
+ * วิเคราะห์ด้วย Gemini 2.5 Flash
+ */
+async function analyzeWithGemini(imageBase64, prompt) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType: 'image/png', data: imageBase64 } }
+          ]
+        }],
+        generationConfig: { maxOutputTokens: 1024, temperature: 0.1 },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Gemini API error: ${response.status} - ${error}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n') || '';
+
+  return {
+    analysis: text,
+    model: 'gemini-2.5-flash',
+    usage: data.usageMetadata || {},
   };
 }
 
