@@ -176,6 +176,41 @@ User Input → Task Queue (SQLite) → Agent Loop v2 → LLM Gateway → Tool Ro
 - `BrowserUse` — Playwright browser automation with Smart Sleep
 
 **Agent Loop v2 features:**
+
+### Agent Loop v2 — State Machine
+
+```
+IDLE ----> PROCESSING ----> WAITING_TOOL ----> PROCESSING ----> COMPLETED
+  ^            |                                              |
+  |            v                                              |
+  +--------- TIMEOUT/FAILED <---------------------------------+
+```
+
+| State | คำอธิบาย |
+|-------|---------|
+| IDLE | รอ task ถัดไป |
+| PROCESSING | กำลังประมวลผล (LLM call) |
+| WAITING_TOOL | รอ tool call result |
+| COMPLETED | task สำเร็จ |
+| FAILED | task ล้มเหลว (retry 3 ครั้งแล้ว) |
+
+**Task lifecycle:**
+1. Task ถูกเพิ่มเข้า queue (priority 1-5)
+2. Agent Loop v2 ดึง task ที่มี priority สูงสุด
+3. ส่ง prompt ไปยัง LLM Gateway
+4. ถ้า LLM เรียก tool -> WAITING_TOOL -> รอ result -> ส่งกลับ LLM
+5. ถ้า task สำเร็จ -> COMPLETED, ถ้า error -> retry (max 3)
+6. Event callbacks: onStart, onComplete, onFailed, onStatusChange
+
+### Agent Loop v2 — Critical Implementation Details
+
+1. **Event-driven**: ไม่มี setInterval polling — ใช้ event emitter ตลอด lifecycle
+2. **SQLite queue**: Persistent task queue — ไม่เสีย task เมื่อ container restart
+3. **Singleton browser**: BrowserUse เป็น singleton — อย่าสร้าง instance ใหม่
+4. **Smart Sleep**: Browser watchdog จะ sleep browser หลังจาก idle 3 นาที — ต้อง wake ก่อนใช้งาน
+5. **Error handling**: ทุก tool call มี try/catch — error จะถูกส่งกลับไปให้ LLM จัดการ
+
+
 - Task queue with priority (1-5)
 - Automatic retry with exponential backoff (max 3 retries)
 - Task timeout (5 min default)
@@ -294,18 +329,20 @@ uv run etsy-mcp auth status      # Check auth status
 |--------|-------------|
 | `master` / `main` | Production |
 | `erp-core` | ERP Core development |
-| `etsy-workflow` | Etsy integration (current) |
+| `etsy-workflow` | Etsy integration | merged -> erp-core |
 | `agent-loop-improve` | Agent Loop improvements |
 | `architecture-v2` | Architecture v2 |
 | `erp-mcp-gateway` | MCP gateway |
 
 ### Current State
 
-- **Active branch**: `etsy-workflow`
-- **Latest commit**: `2163984` — "feat: add Gemini Vision provider + Etsy visual test"
+- **Active branch**: `erp-core`
+- **Latest commit**: `0e6139f` — "chore: add .openhands/microagents/repo.md with full project knowledge"
 - **Remote**: `origin` → `https://github.com/peesaderd/PeteAI.git`
 - **Git user**: openhands / openhands@all-hands.dev
 - **Working tree**: clean
+- **AGENTS.md**: Project rules for AI agents (auto-loaded by OpenHands)
+- **HANDOFF.md**: Current status and next steps for handoff
 
 ### Common Git Commands
 
@@ -398,6 +435,14 @@ etsy-connector/
 └── apps/etsy/tests/        # Unit + integration tests
 ```
 
+### CI/CD
+
+GitHub Actions workflow at `.github/workflows/test.yml`:
+- **unit-tests**: Vitest — runs on every push
+- **e2e-tests**: Playwright — runs on every push
+- **vision-tests**: Visual regression — runs when API key is set
+- **notify-failure**: Auto-creates GitHub Issue on test failure
+
 ### Test Commands
 
 ```bash
@@ -421,7 +466,7 @@ ETSY_INTEGRATION_TESTS=1 make test  # Include integration tests
 - **Package managers**: npm (erp-core), uv (etsy-connector)
 - **Shell**: bash
 - **Working directory**: `/workspace`
-- **Date**: 2026-05-03
+- **Date**: 2026-05-06
 
 ### Available API Keys
 - DeepSeek: `sk-b5d010076fc14d19b3e89d12e470e3de`
