@@ -128,12 +128,8 @@ bot.on(message("text"), async (ctx) => {
 });
 
 // ============================================================
-// Start (long-polling mode with 409 recovery)
+// Start (Telegraf built-in long-polling)
 // ============================================================
-
-async function wait(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
 
 async function startBot(): Promise<void> {
   // Delete any lingering webhook first
@@ -142,44 +138,24 @@ async function startBot(): Promise<void> {
   const info = await bot.telegram.getMe();
   console.log(`[TelegramBot] @${info.username} (id: ${info.id}) starting — orchestrator: ${ORCHESTRATOR_URL}`);
 
-  let offset = 0;
-  let shuttingDown = false;
+  // ใช้ Telegraf's built-in polling ซึ่งจัดการ 409 Conflict,
+  // reconnection, error handling อัตโนมัติ
+  bot.launch({
+    dropPendingUpdates: true,
+    allowedUpdates: ["message", "callback_query"],
+  });
 
-  const shutdown = () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
+  // Graceful shutdown
+  const shutdown = async () => {
     console.log("[TelegramBot] Shutting down...");
+    await bot.stop();
     process.exit(0);
   };
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  // Long-polling with timeout=30s — one connection at a time, no 409 risk
-  // If 409 somehow occurs (e.g. stale instance), wait for it to die and retry
-  while (!shuttingDown) {
-    try {
-      const updates: any = await bot.telegram.callApi("getUpdates", {
-        offset,
-        timeout: 30,
-      });
-
-      if (!updates || updates.length === 0) continue;
-
-      for (const update of updates) {
-        offset = update.update_id + 1;
-        bot.handleUpdate(update);
-      }
-    } catch (err: any) {
-      if (err?.description?.includes("409") || err?.message?.includes("409")) {
-        console.log(`[TelegramBot] 409 Conflict — waiting 30s for stale instance to die...`);
-        await wait(30_000);
-        continue;
-      }
-      console.error(`[TelegramBot] Poll error: ${err.message}, retrying in 5s...`);
-      await wait(5_000);
-    }
-  }
+  console.log("[TelegramBot] Running (Telegraf polling)...");
 }
 
 startBot().catch((err) => {

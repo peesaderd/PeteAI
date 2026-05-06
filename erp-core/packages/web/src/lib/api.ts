@@ -185,6 +185,17 @@ export const api = {
     sales: () => mcp('get_sales_report', { tenantId: 't_001' }),
   },
 
+  // Agent
+  agent: {
+    state: () => request('/agent/state'),
+    tasks: (limit = 50) => request(`/agent/tasks?limit=${limit}`),
+    failedTasks: (limit = 20) => request(`/agent/tasks/failed?limit=${limit}`),
+    start: () => request('/agent/start', { method: 'POST' }),
+    stop: () => request('/agent/stop', { method: 'POST' }),
+    pause: () => request('/agent/pause', { method: 'POST' }),
+    resume: () => request('/agent/resume', { method: 'POST' }),
+  },
+
   // AI
   ai: {
     providers: () => restGet('/ai/providers'),

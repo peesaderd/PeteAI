@@ -21,6 +21,7 @@ import KnowledgeBase from './pages/KnowledgeBase';
 import SettingsPage from './pages/Settings';
 import LLMProviderSettings from './pages/LLMProviderSettings';
 import AIChatbot from './pages/AIChatbot';
+import AgentDashboard from './pages/AgentDashboard';
 import Forecasting from './pages/Forecasting';
 import FraudDetection from './pages/FraudDetection';
 
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
   { path: '/channels', icon: Globe, label: 'Channels' },
   { path: '/knowledge-base', icon: BookOpen, label: 'Knowledge Base' },
   { path: '/chat', icon: MessageSquare, label: 'AI Chat' },
+  { path: '/agent', icon: Bot, label: 'Agent' },
   { path: '/forecasting', icon: TrendingUp, label: 'Forecasting' },
   { path: '/fraud', icon: Shield, label: 'Fraud Detection' },
   { path: '/llm', icon: Bot, label: 'LLM' },
@@ -125,6 +127,7 @@ export default function App() {
             <Route path="/channels" element={<Channels />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
             <Route path="/chat" element={<AIChatbot />} />
+            <Route path="/agent" element={<AgentDashboard />} />
             <Route path="/forecasting" element={<Forecasting />} />
             <Route path="/fraud" element={<FraudDetection />} />
             <Route path="/llm" element={<LLMProviderSettings />} />

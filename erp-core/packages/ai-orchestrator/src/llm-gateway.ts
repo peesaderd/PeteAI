@@ -118,6 +118,7 @@ export class LLMGateway {
       "5. If a tool fails, try an alternative approach",
       "6. Keep responses concise and direct",
       "7. You can use browser for any web-based task",
+      "8. Respond in the SAME LANGUAGE as the user's message (Thai, English, etc.)",
       "",
     ];
 

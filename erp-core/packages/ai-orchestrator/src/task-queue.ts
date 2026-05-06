@@ -11,7 +11,7 @@ import fs from "fs";
 // ─── Types ───────────────────────────────────────────────────
 
 export type TaskStatus = "queued" | "running" | "done" | "failed" | "cancelled";
-export type TaskType = "browser" | "api" | "file" | "llm" | "system" | "chat";
+export type TaskType = "browser" | "api" | "file" | "llm" | "system" | "chat" | "tool";
 
 export interface Task {
   id: string;
@@ -65,7 +65,7 @@ export class TaskQueue {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
-        type TEXT NOT NULL CHECK(type IN ('browser','api','file','llm','system')),
+        type TEXT NOT NULL CHECK(type IN ('browser','api','file','llm','system','chat','tool')),
         status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','done','failed','cancelled')),
         priority INTEGER NOT NULL DEFAULT 3 CHECK(priority BETWEEN 1 AND 5),
         title TEXT NOT NULL,

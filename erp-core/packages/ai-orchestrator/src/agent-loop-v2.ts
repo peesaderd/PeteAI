@@ -362,13 +362,9 @@ export class AgentLoopV2 {
 
     const messages: LLMMessage[] = [
       { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: `Task: ${task.title}\n\nDescription: ${task.description}\n\nInput: ${JSON.stringify(task.input, null, 2)}\n\nAnalyze this task and use the available tools to complete it.`,
-      },
     ];
 
-    // เพิ่มประวัติจาก session ถ้ามี
+    // เพิ่มประวัติจาก session ก่อน (context)
     if (task.sessionId) {
       const history = this.chatStore.getContext(task.sessionId, 10);
       for (const msg of history) {
@@ -380,6 +376,12 @@ export class AgentLoopV2 {
         }
       }
     }
+
+    // คำสั่งปัจจุบันอยู่ท้ายสุด (สำคัญที่สุด)
+    messages.push({
+      role: "user",
+      content: `Task: ${task.title}\n\nDescription: ${task.description}\n\nInput: ${JSON.stringify(task.input, null, 2)}\n\nAnalyze this task and use the available tools to complete it.`,
+    });
 
     return messages;
   }

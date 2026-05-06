@@ -166,6 +166,12 @@ async function main() {
       // Generate session ID if not provided
       const sid = sessionId || "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
 
+      // ─── Ensure session exists in chat store ─────────────────
+      let chatSession = chatStore.getSession(sid);
+      if (!chatSession) {
+        chatSession = chatStore.createSession(sid, message.slice(0, 100));
+      }
+
       // ─── RAG: Search Knowledge Base ────────────────────────
       let knowledgeContext = "";
       try {
@@ -216,10 +222,12 @@ async function main() {
         source: "chat_api",
       });
 
-      // รอให้ task ทำงานเสร็จ (poll ทุก 500ms, timeout 2 นาที)
-      const wasRunning = agentLoopV2.getState().status === "running";
-      if (!wasRunning) agentLoopV2.start();
+      // Auto-start Agent Loop v2 ถ้ายังไม่ทำงาน
+      if (agentLoopV2.getState().status !== "running") {
+        agentLoopV2.start();
+      }
 
+      // รอให้ task ทำงานเสร็จ (poll ทุก 500ms, timeout 2 นาที)
       let result: any;
       const maxWait = 120000;
       const start = Date.now();
@@ -239,8 +247,8 @@ async function main() {
         if (!result) {
           throw new Error("Task timed out after 2 minutes");
         }
-      } finally {
-        if (!wasRunning) agentLoopV2.stop();
+      } catch (err: any) {
+        throw err;
       }
 
       res.json({
@@ -495,6 +503,62 @@ app.post("/api/agents/loop/stop", (_req, res) => {
 
   // เริ่มต่อ Agent Loop v2
   app.post("/api/v2/agent/resume", (_req, res) => {
+    agentLoopV2.resume();
+    res.json({ status: "resumed", state: agentLoopV2.getState() });
+  });
+
+  // ============================================================
+  // Agent Dashboard API (aliases for /api/v2/agent/*)
+  // ============================================================
+
+  // สถานะ Agent
+  app.get("/api/agent/state", (_req, res) => {
+    res.json(agentLoopV2.getState());
+  });
+
+  // รายการ tasks
+  app.get("/api/agent/tasks", (req, res) => {
+    const { status, type, source, limit, offset } = req.query;
+    const tasks = taskQueue.list({
+      status: status as any,
+      type: type as any,
+      source: source as string,
+      limit: limit ? parseInt(limit as string) : undefined,
+      offset: offset ? parseInt(offset as string) : undefined,
+    });
+    res.json(tasks);
+  });
+
+  // Tasks ที่ failed
+  app.get("/api/agent/tasks/failed", (req, res) => {
+    const { limit } = req.query;
+    const tasks = taskQueue.list({
+      status: "failed",
+      limit: limit ? parseInt(limit as string) : 20,
+    });
+    res.json(tasks);
+  });
+
+  // เริ่ม Agent
+  app.post("/api/agent/start", (_req, res) => {
+    agentLoopV2.start();
+    res.json({ status: "started", state: agentLoopV2.getState() });
+  });
+
+  // หยุด Agent
+  app.post("/api/agent/stop", (_req, res) => {
+    agentLoopV2.stop();
+    res.json({ status: "stopped" });
+  });
+
+  // พัก Agent
+  app.post("/api/agent/pause", (_req, res) => {
+    agentLoopV2.pause();
+    res.json({ status: "paused" });
+  });
+
+  // เริ่มต่อ Agent
+  app.post("/api/agent/resume", (_req, res) => {
     agentLoopV2.resume();
     res.json({ status: "resumed", state: agentLoopV2.getState() });
   });
