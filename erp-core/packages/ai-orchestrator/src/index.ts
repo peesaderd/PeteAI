@@ -149,7 +149,6 @@ async function main() {
       }
 
       // ─── Auto-Wake Browser ─────────────────────────────────
-      // ถ้า browser กำลัง sleep → ปลุกก่อนทำงาน
       const browserStatus = browserUse.getStatus();
       if (!browserStatus.active) {
         console.log("[Chat API] Browser is deactivated — skipping wake");
@@ -162,17 +161,12 @@ async function main() {
           console.warn("[Chat API] Browser wake failed — continuing without browser");
         }
       }
-      // รีเซ็ต idle count ทุกครั้งที่มี chat
       browserUse.resetIdle();
-
-      // Validate agent name
-      const validAgents = ["erp"];
-      const agentName = validAgents.includes(agent) ? agent : "erp";
 
       // Generate session ID if not provided
       const sid = sessionId || "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
 
-      // RAG: Search Knowledge Base for relevant context (pre-processing)
+      // ─── RAG: Search Knowledge Base ────────────────────────
       let knowledgeContext = "";
       try {
         const kbUrl = process.env.KB_URL || "http://localhost:3100";
@@ -206,20 +200,54 @@ async function main() {
         }
       } catch {}
 
-      // Process message through Agent Loop
-      const result = await agentLoop.processChatMessage({
+      // ─── Process via Agent Loop v2 ─────────────────────────
+      // สร้าง task และรอผลลัพธ์
+      const task = await agentLoopV2.createTask({
+        type: "chat",
+        title: message.slice(0, 100),
+        description: message,
+        input: {
+          message,
+          language,
+          knowledgeContext: knowledgeContext || undefined,
+        },
+        priority: 3,
         sessionId: sid,
-        message,
-        agent: agentName,
-        language,
-        knowledgeContext: knowledgeContext || undefined,
+        source: "chat_api",
       });
 
+      // รอให้ task ทำงานเสร็จ (poll ทุก 500ms, timeout 2 นาที)
+      const wasRunning = agentLoopV2.getState().status === "running";
+      if (!wasRunning) agentLoopV2.start();
+
+      let result: any;
+      const maxWait = 120000;
+      const start = Date.now();
+      try {
+        while (Date.now() - start < maxWait) {
+          const current = taskQueue.get(task.id);
+          if (!current) break;
+          if (current.status === "done") {
+            result = current.output;
+            break;
+          }
+          if (current.status === "failed") {
+            throw new Error(current.output?.error || "Task failed");
+          }
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (!result) {
+          throw new Error("Task timed out after 2 minutes");
+        }
+      } finally {
+        if (!wasRunning) agentLoopV2.stop();
+      }
+
       res.json({
-        sessionId: result.sessionId,
-        response: result.response,
-        agent: agentName,
-        toolResults: result.toolResults,
+        sessionId: sid,
+        response: result?.summary || "Task completed",
+        agent: "erp-v2",
+        toolResults: result,
       });
     } catch (err: any) {
       console.error("[Chat API] Error:", err);

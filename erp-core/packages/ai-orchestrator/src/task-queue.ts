@@ -11,7 +11,7 @@ import fs from "fs";
 // ─── Types ───────────────────────────────────────────────────
 
 export type TaskStatus = "queued" | "running" | "done" | "failed" | "cancelled";
-export type TaskType = "browser" | "api" | "file" | "llm" | "system";
+export type TaskType = "browser" | "api" | "file" | "llm" | "system" | "chat";
 
 export interface Task {
   id: string;
@@ -138,7 +138,12 @@ export class TaskQueue {
   }
 
   /** อัปเดตสถานะ task */
-  updateStatus(id: string, status: TaskStatus, meta?: { output?: Record<string, any>; error?: string }): Task | null {
+  updateStatus(id: string, status: TaskStatus, meta?: {
+    output?: Record<string, any>;
+    error?: string;
+    progress?: number;
+    progressMessage?: string;
+  }): Task | null {
     const now = new Date().toISOString();
     const sets: string[] = ["status = ?", "updated_at = ?"];
     const params: any[] = [status, now];
