@@ -4,6 +4,7 @@
 // รองรับ:
 // - GPT-4V (OpenAI)
 // - Claude 3.5 Sonnet (Anthropic)
+// - Gemini 2.5 Flash (Google)
 // - fallback: image captioning ด้วย Ollama (llava)
 // ============================================================
 
@@ -42,20 +43,22 @@ export interface VisionAnalysisParams {
   imageBase64: string;
   mimeType?: string;
   question?: string;
-  provider?: "openai" | "anthropic" | "ollama";
+  provider?: "openai" | "anthropic" | "gemini" | "ollama";
 }
 
 export class VisionAnalysis {
   private openaiApiKey: string;
   private anthropicApiKey: string;
+  private geminiApiKey: string;
 
   constructor() {
     this.openaiApiKey = process.env.OPENAI_API_KEY || "";
     this.anthropicApiKey = process.env.ANTHROPIC_API_KEY || "";
+    this.geminiApiKey = process.env.GEMINI_API_KEY || "";
   }
 
   isConfigured(): boolean {
-    return !!(this.openaiApiKey || this.anthropicApiKey);
+    return !!(this.openaiApiKey || this.anthropicApiKey || this.geminiApiKey);
   }
 
   async analyze(params: VisionAnalysisParams): Promise<VisionAnalysisResult> {
@@ -63,14 +66,16 @@ export class VisionAnalysis {
     switch (provider) {
       case "openai": return this.analyzeWithGPT4V(params);
       case "anthropic": return this.analyzeWithClaude(params);
+      case "gemini": return this.analyzeWithGemini(params);
       case "ollama": return this.analyzeWithOllama(params);
       default: return { success: false, description: "", error: `Unknown provider: ${provider}`, provider };
     }
   }
 
-  private defaultProvider(): "openai" | "anthropic" | "ollama" {
+  private defaultProvider(): "openai" | "anthropic" | "gemini" | "ollama" {
     if (this.openaiApiKey) return "openai";
     if (this.anthropicApiKey) return "anthropic";
+    if (this.geminiApiKey) return "gemini";
     return "ollama";
   }
 
@@ -131,6 +136,37 @@ export class VisionAnalysis {
       if (!res.ok) throw new Error(`Claude error (${res.status}): ${(await res.text()).slice(0, 300)}`);
       const data = await res.json();
       return this.parseResponse(data.content?.[0]?.text || "", "claude-3.5-sonnet");
+    } catch (err: any) {
+      return this.fallback(err.message);
+    }
+  }
+
+  // ─── Gemini 2.5 Flash ──────────────────────────────────
+
+  private async analyzeWithGemini(params: VisionAnalysisParams): Promise<VisionAnalysisResult> {
+    if (!this.geminiApiKey) return this.fallback("Gemini API key not configured");
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.geminiApiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: params.question || "Analyze this image in detail." },
+                { inlineData: { mimeType: params.mimeType || "image/png", data: params.imageBase64 } },
+              ],
+            }],
+            systemInstruction: { parts: [{ text: this.buildAnalysisPrompt() }] },
+            generationConfig: { maxOutputTokens: 2048, temperature: 0.3 },
+          }),
+        },
+      );
+      if (!res.ok) throw new Error(`Gemini error (${res.status}): ${(await res.text()).slice(0, 300)}`);
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("\n") || "";
+      return this.parseResponse(text, "gemini-2.5-flash");
     } catch (err: any) {
       return this.fallback(err.message);
     }
