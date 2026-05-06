@@ -12,6 +12,7 @@ import { MemoryStore } from "./memory.js";
 import { ChatStore } from "./chat-store.js";
 import { BrowserUse } from "./browser-use.js";
 import { ReviveChat } from "./revive-chat.js";
+import { RateLimiter } from "./rate-limiter.js";
 import { v4 as uuidv4 } from "uuid";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -37,6 +38,7 @@ export class AgentLoopV2 {
   private chatStore: ChatStore;
   private browser: BrowserUse | null = null;
   private reviveChat: ReviveChat | null = null;
+  private rateLimiter: RateLimiter;
 
   private status: AgentStatus = "stopped";
   private currentTask: Task | null = null;
@@ -67,6 +69,7 @@ export class AgentLoopV2 {
     chatStore: ChatStore,
     browser?: BrowserUse,
     reviveChat?: ReviveChat,
+    rateLimiter?: RateLimiter,
   ) {
     this.llm = llm;
     this.queue = queue;
@@ -75,6 +78,7 @@ export class AgentLoopV2 {
     this.chatStore = chatStore;
     this.browser = browser || null;
     this.reviveChat = reviveChat || null;
+    this.rateLimiter = rateLimiter || new RateLimiter();
   }
 
   // ─── Control ───────────────────────────────────────────────
@@ -204,13 +208,20 @@ export class AgentLoopV2 {
 
   /** Core execution logic with retry support */
   private async executeWithRetry(task: Task): Promise<void> {
-    const planMessages = this.buildPlanMessages(task);
+    // ─── Phase 0: SiYuan Knowledge Retrieval ──────────────
+    this.updateProgress(3, "Searching knowledge base for context...");
+    const kbContext = await this.retrieveKnowledge(task);
+    if (kbContext) {
+      console.log(`[AgentLoopV2] Retrieved ${kbContext.length} chars from KB for task ${task.id}`);
+    }
+
+    const planMessages = this.buildPlanMessages(task, kbContext);
     const tools = this.buildToolDefs(task);
 
     let plan: LLMResponse;
     let lastError: string | null = null;
 
-    // ─── Phase 1: LLM วางแผน (พร้อม retry) ─────────────────
+    // ─── Phase 1: LLM วางแผน (พร้อม retry + fallback) ──────
     this.updateProgress(5, "Analyzing task and creating plan...");
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
@@ -228,10 +239,25 @@ export class AgentLoopV2 {
           console.warn(`[AgentLoopV2] LLM plan attempt ${attempt} failed, retrying in ${delay}ms: ${err.message}`);
           this.updateProgress(5, `Retrying plan (attempt ${attempt + 1})...`);
           await new Promise((r) => setTimeout(r, delay));
-        } else {
-          throw new Error(`LLM plan failed after ${this.maxRetries} attempts: ${lastError}`);
         }
       }
+    }
+
+    // Fallback: ถ้า LLM ล้มทั้งหมด → ใช้ KB/cache response
+    if (lastError) {
+      console.warn(`[AgentLoopV2] LLM failed after ${this.maxRetries} attempts, using fallback: ${lastError}`);
+      const fallbackResponse = await this.getFallbackResponse(task, kbContext);
+      this.queue.updateStatus(task.id, "done", {
+        output: {
+          summary: fallbackResponse,
+          iterations: 0,
+          toolCalls: 0,
+          fallback: true,
+          fallbackReason: lastError,
+        },
+      });
+      this.onTaskComplete?.(this.queue.get(task.id)!);
+      return;
     }
 
     // ─── Phase 2: Execute tools ────────────────────────────
@@ -279,7 +305,7 @@ export class AgentLoopV2 {
         });
       }
 
-      // ส่งผลลัพท์กลับให้ LLM วิเคราะห์ (พร้อม retry)
+      // ส่งผลลัพท์กลับให้ LLM วิเคราะห์ (พร้อม retry + fallback)
       let llmOk = false;
       for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
         try {
@@ -300,7 +326,11 @@ export class AgentLoopV2 {
         }
       }
       if (!llmOk) {
-        throw new Error(`LLM iteration ${iteration} failed after ${this.maxRetries} attempts: ${lastError}`);
+        // Fallback: ใช้ KB/cache response แทนการ throw error
+        console.warn(`[AgentLoopV2] LLM iteration ${iteration} failed, using fallback response`);
+        const fallbackResponse = await this.getFallbackResponse(task, kbContext);
+        finalResponse = fallbackResponse;
+        break;
       }
     }
 
@@ -355,7 +385,7 @@ export class AgentLoopV2 {
 
   // ─── Build Messages ────────────────────────────────────────
 
-  private buildPlanMessages(task: Task): LLMMessage[] {
+  private buildPlanMessages(task: Task, kbContext: string | null = null): LLMMessage[] {
     const systemPrompt = this.llm.buildSystemPrompt(
       `Current task: ${task.title}\nDescription: ${task.description}`,
     );
@@ -363,6 +393,14 @@ export class AgentLoopV2 {
     const messages: LLMMessage[] = [
       { role: "system", content: systemPrompt },
     ];
+
+    // เพิ่ม KB context ถ้ามี (จาก SiYuan)
+    if (kbContext) {
+      messages.push({
+        role: "system",
+        content: `Here is relevant information from the knowledge base to help with this task:\n\n${kbContext}`,
+      });
+    }
 
     // เพิ่มประวัติจาก session ก่อน (context)
     if (task.sessionId) {
@@ -384,6 +422,121 @@ export class AgentLoopV2 {
     });
 
     return messages;
+  }
+
+  /** ดึงความรู้จาก SiYuan/KB ก่อนทำงาน */
+  private async retrieveKnowledge(task: Task): Promise<string | null> {
+    const searchTerms = this.extractSearchTerms(task);
+    if (!searchTerms.length) return null;
+
+    try {
+      // ค้นหาจาก SiYuan ก่อน
+      const siyuanResult = await this.toolRouter.executeTool("siyuan_search_docs", {
+        query: searchTerms.join(" "),
+        limit: 3,
+      });
+
+      if (siyuanResult?.success && siyuanResult?.data?.length > 0) {
+        const docs: string[] = [];
+        for (const doc of siyuanResult.data.slice(0, 3)) {
+          const docResult = await this.toolRouter.executeTool("siyuan_get_doc", {
+            id: doc.id,
+          });
+          if (docResult?.success && docResult?.data) {
+            docs.push(`--- ${doc.title || "Untitled"} ---\n${docResult.data}`);
+          }
+        }
+        if (docs.length > 0) {
+          return docs.join("\n\n");
+        }
+      }
+
+      // Fallback: ค้นหาจาก KB
+      const kbResult = await this.toolRouter.executeTool("kb_query", {
+        query: searchTerms.join(" "),
+        limit: 3,
+      });
+
+      if (kbResult?.success && kbResult?.data) {
+        const content = typeof kbResult.data === "string"
+          ? kbResult.data
+          : JSON.stringify(kbResult.data);
+        return content;
+      }
+    } catch (err: any) {
+      console.warn(`[AgentLoopV2] Knowledge retrieval failed: ${err.message}`);
+    }
+
+    return null;
+  }
+
+  /** Fallback response เมื่อ LLM ล้ม — ดึงจาก KB → cache → rule-based */
+  private async getFallbackResponse(task: Task, kbContext: string | null = null): Promise<string> {
+    // 1. ถ้ามี KB context จาก Phase 0 ให้ใช้เลย
+    if (kbContext) {
+      // ดึงเฉพาะส่วนที่เกี่ยวข้อง
+      const lines = kbContext.split("\n").filter((l) => l.trim());
+      const relevant = lines.slice(0, 20).join("\n");
+      return `[Fallback — LLM unavailable]\n\nBased on knowledge base:\n${relevant}\n\nNote: This is a fallback response. The LLM was temporarily unavailable.`;
+    }
+
+    // 2. ลองค้นหาจาก cache
+    try {
+      const cacheKey = `fallback:${task.type}:${task.title}`;
+      const cached = this.memory.getAgentState("system", "fallback", cacheKey);
+      if (cached) {
+        return `[Fallback — from cache]\n\n${cached}`;
+      }
+    } catch {
+      // ignore cache errors
+    }
+
+    // 3. ลองค้นหาจาก SiYuan โดยตรง
+    try {
+      const result = await this.toolRouter.executeTool("siyuan_search_docs", {
+        query: task.title,
+        limit: 1,
+      });
+      if (result?.success && result?.data?.[0]?.id) {
+        const doc = await this.toolRouter.executeTool("siyuan_get_doc", {
+          id: result.data[0].id,
+        });
+        if (doc?.success && doc?.data) {
+          const content = typeof doc.data === "string" ? doc.data : JSON.stringify(doc.data);
+          return `[Fallback — from SiYuan]\n\n${content.slice(0, 2000)}`;
+        }
+      }
+    } catch {
+      // ignore search errors
+    }
+
+    // 4. Rule-based สุดท้าย
+    return `[Fallback — LLM unavailable]\n\nI received your request "${task.title}" but the AI service is currently unavailable. Please try again later. If this persists, check the LLM configuration and API status.`;
+  }
+
+  /** สกัดคำค้นหาจาก task */
+  private extractSearchTerms(task: Task): string[] {
+    const terms = new Set<string>();
+    const text = `${task.title} ${task.description} ${JSON.stringify(task.input || {})}`.toLowerCase();
+
+    // ตัดคำที่สำคัญ (อย่างน้อย 3 ตัวอักษร)
+    const words = text.split(/[\s,._\-:;!?()]+/);
+    const stopWords = new Set([
+      "the", "a", "an", "is", "are", "was", "were", "be", "been",
+      "has", "have", "had", "do", "does", "did", "will", "would",
+      "can", "could", "shall", "should", "may", "might", "must",
+      "this", "that", "these", "those", "and", "or", "but", "not",
+      "for", "with", "without", "from", "to", "in", "on", "at",
+      "by", "of", "it", "its", "task", "description", "input",
+    ]);
+
+    for (const word of words) {
+      if (word.length >= 3 && !stopWords.has(word)) {
+        terms.add(word);
+      }
+    }
+
+    return Array.from(terms).slice(0, 10);
   }
 
   // ─── Tool Definitions ──────────────────────────────────────
@@ -436,18 +589,29 @@ export class AgentLoopV2 {
   ): Promise<any> {
     console.log(`[AgentLoopV2] Tool: ${name}(${JSON.stringify(args).slice(0, 200)})`);
 
+    // Rate limiter check
+    const agentId = task.sessionId || task.id;
+    try {
+      this.rateLimiter.check(agentId);
+    } catch (err: any) {
+      return { success: false, error: err.message, rateLimited: true };
+    }
+
     // ReviveChat tool
     if (name === "revive_chat" && this.reviveChat) {
+      this.rateLimiter.increment(agentId);
       return await this.reviveChat.sendMessage(args.message);
     }
 
     // Browser tools ต้องใช้ browser instance
     if (name.startsWith("browser_") && this.browser) {
+      this.rateLimiter.increment(agentId);
       return await this.executeBrowserTool(name, args);
     }
 
     // Tool ปกติผ่าน ToolRouter
     try {
+      this.rateLimiter.increment(agentId);
       const result = await this.toolRouter.executeTool(name, args);
       return result;
     } catch (err: any) {
