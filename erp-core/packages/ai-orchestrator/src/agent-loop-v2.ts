@@ -15,6 +15,7 @@ import { ReviveChat } from "./revive-chat.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { VisionAnalysis, type VisionAnalysisParams } from "./vision-analysis.js";
 import { EtsyBrowserWorkflow, type EtsyListingParams } from "./etsy-browser-workflow.js";
+import { EtsyApiClient, EtsyApiError, type EtsyApiConfig, type EtsyToken } from "./etsy-api-client.js";
 import { v4 as uuidv4 } from "uuid";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -43,6 +44,7 @@ export class AgentLoopV2 {
   private rateLimiter: RateLimiter;
   private vision: VisionAnalysis;
   private etsyWorkflow: EtsyBrowserWorkflow | null = null;
+  private etsyApi: EtsyApiClient | null = null;
 
   private status: AgentStatus = "stopped";
   private currentTask: Task | null = null;
@@ -74,6 +76,7 @@ export class AgentLoopV2 {
     browser?: BrowserUse,
     reviveChat?: ReviveChat,
     rateLimiter?: RateLimiter,
+    etsyApiConfig?: EtsyApiConfig,
   ) {
     this.llm = llm;
     this.queue = queue;
@@ -86,6 +89,9 @@ export class AgentLoopV2 {
     this.vision = new VisionAnalysis();
     if (this.browser) {
       this.etsyWorkflow = new EtsyBrowserWorkflow(this.browser);
+    }
+    if (etsyApiConfig) {
+      this.etsyApi = new EtsyApiClient(etsyApiConfig);
     }
   }
 
@@ -606,7 +612,7 @@ export class AgentLoopV2 {
       });
     }
 
-    // Etsy workflow tools
+    // Etsy workflow tools (browser-based)
     if (this.etsyWorkflow) {
       tools.push({
         type: "function",
@@ -635,6 +641,127 @@ export class AgentLoopV2 {
           name: "etsy_get_status",
           description: "Get current Etsy workflow status and the last step executed.",
           parameters: { type: "object", properties: {} },
+        },
+      });
+    }
+
+    // Etsy API tools (REST-based — ไม่ต้องใช้ browser)
+    if (this.etsyApi) {
+      tools.push({
+        type: "function",
+        function: {
+          name: "etsy_api_get_auth_url",
+          description: "ขั้นตอนที่ 1: สร้าง Etsy OAuth authorization URL สำหรับให้ user เปิดใน browser เพื่อให้ permission",
+          parameters: {
+            type: "object",
+            properties: {},
+          },
+        },
+      });
+
+      tools.push({
+        type: "function",
+        function: {
+          name: "etsy_api_exchange_code",
+          description: "ขั้นตอนที่ 2: แลก authorization code จาก URL callback เป็น access token",
+          parameters: {
+            type: "object",
+            properties: {
+              code: { type: "string", description: "Authorization code จาก URL callback (query param ?code=...)" },
+              codeVerifier: { type: "string", description: "code_verifier จากขั้นตอน get_auth_url" },
+            },
+            required: ["code", "codeVerifier"],
+          },
+        },
+      });
+
+      tools.push({
+        type: "function",
+        function: {
+          name: "etsy_api_get_shop_id",
+          description: "ค้นหา Shop ID จากชื่อร้านค้า หรือดึงจาก user ที่ login อยู่",
+          parameters: {
+            type: "object",
+            properties: {
+              shopName: { type: "string", description: "ชื่อร้านค้าบน Etsy (ไม่ต้องใส่) — ถ้าไม่ใส่จะดึงจาก user ที่ login" },
+            },
+          },
+        },
+      });
+
+      tools.push({
+        type: "function",
+        function: {
+          name: "etsy_api_create_draft_listing",
+          description: "สร้าง Draft Listing ใหม่ในร้านค้า ยังไม่เผยแพร่ ต้องเรียก publish ทีหลัง",
+          parameters: {
+            type: "object",
+            properties: {
+              shopId: { type: "number", description: "Etsy Shop ID" },
+              title: { type: "string", description: "ชื่อสินค้า" },
+              description: { type: "string", description: "รายละเอียดสินค้า" },
+              price: { type: "number", description: "ราคาใน USD" },
+              quantity: { type: "number", description: "จำนวนสินค้าใน stock", default: 1 },
+              taxonomy_id: { type: "number", description: "Taxonomy ID (หมวดหมู่สินค้า). ดูจาก ETSY_TAXONOMIES" },
+              who_made: { type: "string", enum: ["i_did", "someone_else", "collective"], description: "ใครเป็นคนทำ" },
+              when_made: { type: "string", description: "ช่วงเวลาที่ทำ เช่น '2020_2026', '2010_2019', 'made_to_order'" },
+              tags: { type: "array", items: { type: "string" }, description: "ป้ายกำกับสูงสุด 13 อัน" },
+              materials: { type: "array", items: { type: "string" }, description: "วัสดุที่ใช้" },
+              type: { type: "string", enum: ["physical", "download", "both"], default: "physical" },
+              should_auto_renew: { type: "boolean", default: true },
+            },
+            required: ["shopId", "title", "description", "price", "quantity", "taxonomy_id", "who_made", "when_made"],
+          },
+        },
+      });
+
+      tools.push({
+        type: "function",
+        function: {
+          name: "etsy_api_upload_image",
+          description: "อัปโหลดรูปภาพให้กับ Draft Listing (รองรับ base64)",
+          parameters: {
+            type: "object",
+            properties: {
+              shopId: { type: "number", description: "Etsy Shop ID" },
+              listingId: { type: "number", description: "Listing ID ที่ได้จาก create_draft_listing" },
+              imageBase64: { type: "string", description: "รูปภาพในรูปแบบ base64" },
+              rank: { type: "number", description: "ลำดับของรูป (1 = รูปหลัก)", default: 1 },
+              altText: { type: "string", description: "ข้อความ alt สำหรับรูป" },
+            },
+            required: ["shopId", "listingId", "imageBase64"],
+          },
+        },
+      });
+
+      tools.push({
+        type: "function",
+        function: {
+          name: "etsy_api_publish_listing",
+          description: "เผยแพร่ Draft Listing → Active (สินค้าจะปรากฏบน Etsy)",
+          parameters: {
+            type: "object",
+            properties: {
+              shopId: { type: "number", description: "Etsy Shop ID" },
+              listingId: { type: "number", description: "Listing ID ที่ต้องการเผยแพร่" },
+            },
+            required: ["shopId", "listingId"],
+          },
+        },
+      });
+
+      tools.push({
+        type: "function",
+        function: {
+          name: "etsy_api_get_listings",
+          description: "ดึงรายการสินค้าทั้งหมดของร้านค้า",
+          parameters: {
+            type: "object",
+            properties: {
+              shopId: { type: "number", description: "Etsy Shop ID" },
+            },
+            required: ["shopId"],
+          },
         },
       });
     }
@@ -671,13 +798,19 @@ export class AgentLoopV2 {
       return await this.vision.analyze(args as VisionAnalysisParams);
     }
 
-    // Etsy workflow tools
+    // Etsy workflow tools (browser-based)
     if (name === "etsy_create_listing" && this.etsyWorkflow) {
       this.rateLimiter.increment(agentId);
       return await this.etsyWorkflow.createListing(args as EtsyListingParams);
     }
     if (name === "etsy_get_status" && this.etsyWorkflow) {
       return { success: true, data: { step: this.etsyWorkflow.getCurrentStep() } };
+    }
+
+    // ─── Etsy API tools (REST-based) ──────────────────────
+    if (name.startsWith("etsy_api_") && this.etsyApi) {
+      this.rateLimiter.increment(agentId);
+      return await this.executeEtsyApiTool(name, args);
     }
 
     // Browser tools ต้องใช้ browser instance
@@ -736,6 +869,126 @@ export class AgentLoopV2 {
           return { success: false, error: `Unknown browser tool: ${name}` };
       }
     } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // ─── Etsy API Tool Execution ───────────────────────────────
+
+  private async executeEtsyApiTool(
+    name: string,
+    args: Record<string, any>,
+  ): Promise<any> {
+    if (!this.etsyApi) {
+      return { success: false, error: "Etsy API client not configured" };
+    }
+
+    try {
+      switch (name) {
+        case "etsy_api_get_auth_url": {
+          const result = this.etsyApi.generateAuthUrl();
+          return {
+            success: true,
+            data: result,
+            message: "กรุณาเปิด URL นี้ใน browser เพื่อให้ permission กับ Etsy:\n" + result.url +
+              "\n\nหลังจาก approve แล้ว Etsy จะ redirect ไปยัง redirect URI พร้อม query param ?code=...\n" +
+              "ให้นำ code นั้นมาใช้กับ etsy_api_exchange_code",
+          };
+        }
+
+        case "etsy_api_exchange_code": {
+          const token = await this.etsyApi.exchangeCode(args.code, args.codeVerifier);
+          return {
+            success: true,
+            data: {
+              accessToken: token.access_token,
+              refreshToken: token.refresh_token,
+              expiresIn: token.expires_in,
+            },
+            message: "✅ OAuth สำเร็จ! Token จะหมดอายุใน " + token.expires_in + " วินาที",
+          };
+        }
+
+        case "etsy_api_get_shop_id": {
+          if (args.shopName) {
+            const shops = await this.etsyApi.findShops(args.shopName);
+            if (shops.length === 0) {
+              return { success: false, error: "ไม่พบร้านค้าชื่อ: " + args.shopName };
+            }
+            return { success: true, data: shops[0] };
+          }
+          // ดึงจาก user ที่ login
+          const user = await this.etsyApi.getMe();
+          const shops = await this.etsyApi.getShopByOwnerUserId(user.user_id);
+          if (shops.length === 0) {
+            return { success: false, error: "User นี้ไม่มีร้านค้า" };
+          }
+          return {
+            success: true,
+            data: { user, shop: shops[0] },
+          };
+        }
+
+        case "etsy_api_create_draft_listing": {
+          const listing = await this.etsyApi.createDraftListing(args.shopId, {
+            title: args.title,
+            description: args.description,
+            price: args.price,
+            quantity: args.quantity ?? 1,
+            taxonomy_id: args.taxonomy_id,
+            who_made: args.who_made,
+            when_made: args.when_made,
+            tags: args.tags,
+            materials: args.materials,
+            type: args.type ?? "physical",
+            should_auto_renew: args.should_auto_renew ?? true,
+          });
+          return {
+            success: true,
+            data: listing,
+            message: `✅ สร้าง Draft Listing แล้ว! Listing ID: ${listing.listing_id}`,
+          };
+        }
+
+        case "etsy_api_upload_image": {
+          const image = await this.etsyApi.uploadListingImage(args.shopId, {
+            listingId: args.listingId,
+            imageBase64: args.imageBase64,
+            rank: args.rank ?? 1,
+            altText: args.altText,
+          });
+          return {
+            success: true,
+            data: image,
+            message: `✅ อัปโหลดรูปภาพสำเร็จ! Image ID: ${image.listing_image_id}`,
+          };
+        }
+
+        case "etsy_api_publish_listing": {
+          const listing = await this.etsyApi.publishListing(args.shopId, args.listingId);
+          return {
+            success: true,
+            data: listing,
+            message: `✅ เผยแพร่ Listing สำเร็จ! สินค้าพร้อมขายที่: ${listing.url}`,
+          };
+        }
+
+        case "etsy_api_get_listings": {
+          const listings = await this.etsyApi.getListingsByShop(args.shopId);
+          return {
+            success: true,
+            data: listings,
+            count: listings.length,
+          };
+        }
+
+        default:
+          return { success: false, error: `Unknown Etsy API tool: ${name}` };
+      }
+    } catch (err: any) {
+      if (err instanceof EtsyApiError) {
+        return { success: false, error: err.message, status: err.status };
+      }
       return { success: false, error: err.message };
     }
   }
