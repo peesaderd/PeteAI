@@ -19,6 +19,11 @@ import { WorkflowEngine } from "./workflow.js";
 import { BrowserUse } from "./browser-use.js";
 import { BrowserWatchdog } from "./browser-watchdog.js";
 
+// ─── Architecture v2: PeteAI Autonomous ──────────────────────
+import { LLMGateway } from "./llm-gateway.js";
+import { TaskQueue } from "./task-queue.js";
+import { AgentLoopV2 } from "./agent-loop-v2.js";
+
 const PORT = parseInt(process.env.ORCHESTRATOR_PORT || "54516", 10);
 
 async function main() {
@@ -64,6 +69,51 @@ async function main() {
     await browserUse.init();
     browserWatchdog.start();
     console.log("[Server] Browser Watchdog started (Smart Sleep enabled)");
+  }
+
+  // ============================================================
+  // Architecture v2: PeteAI Autonomous
+  // ============================================================
+
+  // LLM Gateway — Unified LLM สำหรับทั้งระบบ
+  const llmGateway = new LLMGateway();
+  if (llmGateway.isConfigured()) {
+    console.log(`[Server] LLM Gateway ready: ${llmGateway.getConfig().provider}/${llmGateway.getConfig().model}`);
+  } else {
+    console.warn("[Server] LLM Gateway not configured — set LLM_API_KEY and LLM_BASE_URL");
+  }
+
+  // Task Queue — SQLite-based persistent queue (แทน Redis)
+  const taskQueue = new TaskQueue();
+  console.log("[Server] Task Queue ready (SQLite)");
+
+  // Agent Loop v2 — Controllable, task-based autonomous agent
+  const agentLoopV2 = new AgentLoopV2(
+    llmGateway,
+    taskQueue,
+    toolRouter,
+    memory,
+    chatStore,
+    browserUse,
+  );
+
+  // Event callbacks
+  agentLoopV2.onTaskStart = (task) => {
+    console.log(`[AgentLoopV2] Task started: ${task.id} (${task.title})`);
+  };
+  agentLoopV2.onTaskComplete = (task) => {
+    console.log(`[AgentLoopV2] Task done: ${task.id} (${task.title})`);
+  };
+  agentLoopV2.onTaskFailed = (task, error) => {
+    console.error(`[AgentLoopV2] Task failed: ${task.id} — ${error.slice(0, 200)}`);
+  };
+  agentLoopV2.onStatusChange = (status) => {
+    console.log(`[AgentLoopV2] Status → ${status}`);
+  };
+
+  // Auto-start Agent Loop v2 ถ้าเปิดไว้
+  if (process.env.AGENT_LOOP_V2_ENABLED === "true") {
+    agentLoopV2.start();
   }
 
   // ============================================================
@@ -386,6 +436,126 @@ app.post("/api/agents/loop/stop", (_req, res) => {
   app.post("/api/browser/reset-idle", (_req, res) => {
     browserUse.resetIdle();
     res.json({ status: "idle_reset" });
+  });
+
+  // ============================================================
+  // Architecture v2: Agent Loop v2 Control API
+  // ============================================================
+
+  // สถานะ Agent Loop v2
+  app.get("/api/v2/agent/status", (_req, res) => {
+    res.json(agentLoopV2.getState());
+  });
+
+  // เริ่ม Agent Loop v2
+  app.post("/api/v2/agent/start", (_req, res) => {
+    agentLoopV2.start();
+    res.json({ status: "started", state: agentLoopV2.getState() });
+  });
+
+  // หยุด Agent Loop v2
+  app.post("/api/v2/agent/stop", (_req, res) => {
+    agentLoopV2.stop();
+    res.json({ status: "stopped" });
+  });
+
+  // พัก Agent Loop v2
+  app.post("/api/v2/agent/pause", (_req, res) => {
+    agentLoopV2.pause();
+    res.json({ status: "paused" });
+  });
+
+  // เริ่มต่อ Agent Loop v2
+  app.post("/api/v2/agent/resume", (_req, res) => {
+    agentLoopV2.resume();
+    res.json({ status: "resumed", state: agentLoopV2.getState() });
+  });
+
+  // ============================================================
+  // Architecture v2: Task Queue API
+  // ============================================================
+
+  // สร้าง task ใหม่
+  app.post("/api/v2/tasks", async (req, res) => {
+    try {
+      const { type, title, description, input, priority, sessionId, source } = req.body;
+      if (!type || !title) {
+        return res.status(400).json({ error: "type and title are required" });
+      }
+      const task = await agentLoopV2.createTask({
+        type,
+        title,
+        description,
+        input,
+        priority,
+        sessionId,
+        source,
+      });
+      res.status(201).json(task);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ดึง task ตาม ID
+  app.get("/api/v2/tasks/:id", (req, res) => {
+    const task = taskQueue.get(req.params.id);
+    if (!task) return res.status(404).json({ error: "Task not found" });
+    res.json(task);
+  });
+
+  // ลิสต์ tasks
+  app.get("/api/v2/tasks", (req, res) => {
+    const { status, type, source, limit, offset } = req.query;
+    const tasks = taskQueue.list({
+      status: status as any,
+      type: type as any,
+      source: source as string,
+      limit: limit ? parseInt(limit as string) : undefined,
+      offset: offset ? parseInt(offset as string) : undefined,
+    });
+    res.json({ tasks, count: tasks.length });
+  });
+
+  // ยกเลิก task
+  app.post("/api/v2/tasks/:id/cancel", (req, res) => {
+    const task = taskQueue.cancel(req.params.id);
+    if (!task) return res.status(404).json({ error: "Task not found" });
+    res.json(task);
+  });
+
+  // สถิติ tasks
+  app.get("/api/v2/tasks/stats/count", (_req, res) => {
+    res.json(taskQueue.countByStatus());
+  });
+
+  // ============================================================
+  // Architecture v2: LLM Gateway API
+  // ============================================================
+
+  // ดู config LLM ปัจจุบัน
+  app.get("/api/v2/llm/config", (_req, res) => {
+    res.json(llmGateway.getConfig());
+  });
+
+  // อัปเดต config LLM
+  app.post("/api/v2/llm/config", (req, res) => {
+    try {
+      llmGateway.updateConfig(req.body);
+      res.json({ status: "updated", config: llmGateway.getConfig() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ดู logs ล่าสุด
+  app.get("/api/v2/llm/logs", (req, res) => {
+    const { source, limit } = req.query;
+    const logs = llmGateway.getRecentLogs(
+      limit ? parseInt(limit as string) : 50,
+      source as any,
+    );
+    res.json({ logs, count: logs.length });
   });
 
   // ============================================================
