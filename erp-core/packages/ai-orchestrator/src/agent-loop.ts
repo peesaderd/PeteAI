@@ -67,32 +67,18 @@ interface Delegation {
 
 const AGENT_DEFINITIONS: AgentConfig[] = [
   {
-    name: "rd",
-    role: "Research & Development - feasibility analysis, prototyping, technical research",
-    systemPrompt: `You are the R&D Agent. Your job is to:
-1. Research technical feasibility of ideas
-2. Analyze requirements and constraints
-3. Create prototype plans and technical specifications
-4. Identify risks and mitigation strategies
-5. Provide evidence-based recommendations
+    name: "erp",
+    role: "ERP Assistant - chat-based assistant for ERP Core system operations, information retrieval, and task execution",
+    systemPrompt: `You are the ERP Assistant. Your job is to:
+1. Answer questions about the ERP Core system
+2. Execute tasks using available tools
+3. Retrieve and present information from the knowledge base
+4. Help users manage their workflow
+5. Provide clear, concise responses in Thai or English as requested
 
-Use http_request to research, siyuan_get_doc to read existing knowledge, agency_create_task to create tasks, and agency_delegate_task to delegate subtasks to other agents (e.g., delegate prototype implementation to production).`,
-    maxConcurrentTasks: 3,
-    maxIterationsPerTask: 15,
-  },
-  {
-    name: "brainstorm",
-    role: "Research & Ideation - creative brainstorming, market analysis, idea generation",
-    systemPrompt: `You are the Brainstorm Agent. Your job is to:
-1. Generate creative ideas and solutions
-2. Analyze market trends and opportunities
-3. Create structured concept documents
-4. Evaluate ideas against criteria
-5. Provide multiple options with pros/cons
-
-Use http_request to research trends, siyuan_get_doc to read existing knowledge, siyuan_create_doc to document ideas, and agency_delegate_task to pass execution to production or design agents.`,
-    maxConcurrentTasks: 3,
-    maxIterationsPerTask: 15,
+Use kb_search/kb_read to find information, http_request to interact with ERP APIs, and execute_command for system tasks.`,
+    maxConcurrentTasks: 5,
+    maxIterationsPerTask: 10,
   },
   {
     name: "production",
@@ -104,93 +90,9 @@ Use http_request to research trends, siyuan_get_doc to read existing knowledge, 
 4. Create and track tasks in the system
 5. Document progress and results
 
-Use execute_command for automation, http_request to check services, siyuan_create_doc to document progress, and agency_delegate_task to request research or design input from other agents.`,
+Use execute_command for automation, http_request to check services, and siyuan_create_doc to document progress.`,
     maxConcurrentTasks: 3,
     maxIterationsPerTask: 20,
-  },
-  {
-    name: "design",
-    role: "UI/UX & Creative - design systems, user experience, visual assets",
-    systemPrompt: `You are the Design Agent. Your job is to:
-1. Create design concepts and specifications
-2. Analyze user experience requirements
-3. Design system architecture and components
-4. Document design decisions and guidelines
-5. Coordinate with production for implementation
-
-Use siyuan_get_doc to read requirements, siyuan_create_doc for design docs, http_request for design tools, and agency_delegate_task to hand off designs to production for implementation.`,
-    maxConcurrentTasks: 2,
-    maxIterationsPerTask: 15,
-  },
-  {
-    name: "marketing",
-    role: "Campaign & Content - marketing strategy, content creation, analytics",
-    systemPrompt: `You are the Marketing Agent. Your job is to:
-1. Create marketing strategies and campaigns
-2. Analyze market data and customer insights
-3. Create content and copy
-4. Track campaign performance
-5. Optimize based on results
-
-Use http_request to gather market data, siyuan_create_doc for content, agency_create_task to coordinate with design, and agency_delegate_task to delegate campaign execution to production.`,
-    maxConcurrentTasks: 2,
-    maxIterationsPerTask: 15,
-  },
-  {
-    name: "qa",
-    role: "Quality Assurance - testing, verification, bug tracking, quality metrics",
-    systemPrompt: `You are the QA Agent. Your job is to:
-1. Create test plans and test cases
-2. Execute automated and manual tests
-3. Track bugs and verify fixes
-4. Monitor quality metrics and standards
-5. Generate quality reports and recommendations
-
-Use execute_command to run tests, http_request to check service health, siyuan_create_doc to document test results, and agency_delegate_task to report bugs to production or request clarifications from rd.`,
-    maxConcurrentTasks: 3,
-    maxIterationsPerTask: 15,
-  },
-  {
-    name: "devops",
-    role: "Infrastructure & Deployment - CI/CD, monitoring, infrastructure management, security",
-    systemPrompt: `You are the DevOps Agent. Your job is to:
-1. Manage CI/CD pipelines and deployments
-2. Monitor infrastructure health and performance
-3. Manage containers, servers, and cloud resources
-4. Implement security best practices and backups
-5. Automate operational tasks and incident response
-
-Use execute_command for infrastructure automation, http_request to check service health, siyuan_create_doc for runbooks, and agency_delegate_task to coordinate with production for deployments or qa for testing.`,
-    maxConcurrentTasks: 3,
-    maxIterationsPerTask: 20,
-  },
-  {
-    name: "finance",
-    role: "Budget & Cost Analysis - financial planning, cost tracking, resource optimization",
-    systemPrompt: `You are the Finance Agent. Your job is to:
-1. Analyze project costs and budgets
-2. Track expenses and resource utilization
-3. Create financial forecasts and reports
-4. Identify cost optimization opportunities
-5. Provide ROI analysis and recommendations
-
-Use http_request to gather financial data, siyuan_get_doc to read project requirements, siyuan_create_doc for financial reports, and agency_delegate_task to request cost estimates from production or rd.`,
-    maxConcurrentTasks: 2,
-    maxIterationsPerTask: 15,
-  },
-  {
-    name: "erp",
-    role: "ERP Assistant - chat-based assistant for ERP Core system operations, information retrieval, and task execution",
-    systemPrompt: `You are the ERP Assistant. Your job is to:
-1. Answer questions about the ERP Core system
-2. Execute tasks using available tools
-3. Retrieve and present information from the knowledge base
-4. Help users manage their workflow
-5. Provide clear, concise responses in Thai or English as requested
-
-Use kb_search/kb_read to find information, http_request to interact with ERP APIs, execute_command for system tasks, and agency_delegate_task to delegate complex tasks to specialized agents (rd, production, qa, devops, etc.).`,
-    maxConcurrentTasks: 5,
-    maxIterationsPerTask: 10,
   },
 ];
 
@@ -240,7 +142,7 @@ export class AgentLoop {
   start(): void {
     if (this.running) return;
     this.running = true;
-    console.log(`[AgentLoop] Starting ${this.agents.size} autonomous agents...`);
+    console.log(`[AgentLoop] Starting ${this.agents.size} agents (event-driven mode)...`);
     for (const [name, config] of this.agents) {
       console.log(
         `[AgentLoop]  🤖 ${name} (${config.role}) maxTasks=${config.maxConcurrentTasks} maxIter=${config.maxIterationsPerTask}`
@@ -250,28 +152,25 @@ export class AgentLoop {
       `[AgentLoop] LLM: ${this.llm.isConfigured() ? this.llm.getConfig().model : "RULE-BASED (no LLM configured)"}`
     );
 
-    // Event-driven mode: use Redis queue, agents sleep when idle
+    // ─── Event-driven mode ONLY ──────────────────────────────
+    // Agents do NOT poll. They sleep and only wake when a task
+    // arrives via Redis queue or Chat API (processChatMessage).
+    this.eventDriven = true;
+
     if (this.redisQueue && this.redisQueue.isConnected()) {
-      this.eventDriven = true;
-      console.log(`[AgentLoop] Event-driven mode enabled (Redis queue)`);
-      console.log(`[AgentLoop] Max concurrent agents: ${this.maxConcurrentAgents}`);
-      // Subscribe all agents to wake signals
+      console.log(`[AgentLoop] Redis queue connected — subscribing agents...`);
       for (const [name] of this.agents) {
         this.redisQueue.subscribe(name, () => this.wakeAgent(name));
       }
-      // Start with all agents sleeping
-      for (const [name] of this.agents) {
-        this.agentSleeping.set(name, true);
-      }
-      // Still run tick but at a slower interval (30s) to check for orphaned tasks
-      this.timer = setInterval(() => this.tick(), Math.max(this.pollInterval, 30000));
-      console.log(`[AgentLoop] All agents sleeping. Waiting for tasks via Redis...`);
     } else {
-      // Polling mode: original behavior
-      console.log(`[AgentLoop] Polling mode (no Redis queue)`);
-      this.tick();
-      this.timer = setInterval(() => this.tick(), this.pollInterval);
+      console.log(`[AgentLoop] No Redis queue — agents will only respond to Chat API calls`);
     }
+
+    // All agents start sleeping — no polling timer
+    for (const [name] of this.agents) {
+      this.agentSleeping.set(name, true);
+    }
+    console.log(`[AgentLoop] All agents sleeping. Waiting for tasks via Redis or Chat API...`);
   }
 
   stop(): void {
@@ -318,43 +217,9 @@ export class AgentLoop {
   }
 
   // ─── Main Loop ─────────────────────────────────────────────
-
-  private async tick(): Promise<void> {
-    if (!this.running) return;
-    this.tickCount++;
-
-    try {
-      // Phase 1: Process active tasks (continue existing work)
-      await this.processActiveTasks();
-
-      // Phase 2: Poll for new tasks (if agents have capacity)
-      await this.pollNewTasks();
-
-      // Phase 3: In event-driven mode, check Redis queue for sleeping agents
-      if (this.eventDriven && this.redisQueue) {
-        await this.checkRedisQueue();
-      }
-    } catch (err: any) {
-      console.error(`[AgentLoop] Tick error:`, err.message);
-    }
-  }
-
-  // ─── Check Redis Queue for Sleeping Agents ────────────────
-
-  private async checkRedisQueue(): Promise<void> {
-    try {
-      for (const [name, sleeping] of this.agentSleeping) {
-        if (!sleeping) continue;
-        const len = await this.redisQueue!.queueLength(name);
-        if (len > 0) {
-          console.log(`[AgentLoop] Redis queue has ${len} tasks for ${name}, waking...`);
-          await this.wakeAgent(name);
-        }
-      }
-    } catch (err: any) {
-      console.error(`[AgentLoop] checkRedisQueue error:`, err.message);
-    }
-  }
+  // Intentionally empty. Agent Loop is event-driven only.
+  // Tasks arrive via Redis queue subscription or Chat API.
+  // No polling, no timers, no autonomous tick().
 
   // ─── Process Active Tasks ──────────────────────────────────
 
