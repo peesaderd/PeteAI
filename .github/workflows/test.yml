@@ -2,9 +2,9 @@ name: CI Test Pipeline
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master, develop, erp-core]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main, master, develop, erp-core]
 
 jobs:
   unit-tests:
