@@ -40,17 +40,20 @@ jobs:
       - name: Capture screenshots of all pages
         run: |
           mkdir -p screenshots
-          npx playwright test -c playwright.config.js -e "
-            const { chromium } = require('playwright');
+          node -e "
+          const { chromium } = require('playwright');
+          (async () => {
             const browser = await chromium.launch();
             const pages = ['/', '/login', '/home', '/pricing', '/builder'];
             for (const path of pages) {
               const page = await browser.newPage();
               await page.goto('http://localhost:3000' + path, { waitUntil: 'networkidle' });
-              await page.screenshot({ path: 'screenshots' + path.replace(/\//g, '-') + '.png', fullPage: true });
+              const filename = path === '/' ? 'root' : path.replace(/^\//, '').replace(/\//g, '-');
+              await page.screenshot({ path: 'screenshots/' + filename + '.png', fullPage: true });
               await page.close();
             }
             await browser.close();
+          })();
           "
 
       - name: Run DeepSeek Vision Analysis
@@ -58,40 +61,33 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          node -e "
-          const fs = require('fs');
-          const path = require('path');
-          const { analyzeUI, PROMPTS } = require('./tests/vision/deepseek-vision.js');
+          node --input-type=module -e "
+          import fs from 'fs';
+          import path from 'path';
+          import { analyzeUI, PROMPTS } from './tests/vision/deepseek-vision.js';
 
-          async function main() {
-            const screenshots = fs.readdirSync('screenshots').filter(f => f.endsWith('.png'));
-            let report = '# 🎯 Vision UI Review\n\n';
+          const screenshots = fs.readdirSync('screenshots').filter(f => f.endsWith('.png'));
+          let report = '# 🎯 Vision UI Review\n\n';
 
-            for (const file of screenshots) {
-              const img = fs.readFileSync(path.join('screenshots', file));
-              const base64 = img.toString('base64');
-              const pageName = file.replace(/\.png$/, '').replace(/^-/, '/');
+          for (const file of screenshots) {
+            const img = fs.readFileSync(path.join('screenshots', file));
+            const base64 = img.toString('base64');
+            const pageName = file.replace(/\.png$/, '');
 
-              report += `## 📄 Page: \`${pageName}\`\n\n`;
+            report += '## 📄 Page: ' + pageName + '\n\n';
 
-              // UI Elements
-              const elements = await analyzeUI(base64, PROMPTS.UI_ELEMENTS);
-              report += `### 🔍 UI Elements\n\`\`\`\n${elements.analysis}\n\`\`\`\n\n`;
+            const elements = await analyzeUI(base64, PROMPTS.UI_ELEMENTS);
+            report += '### 🔍 UI Elements\n\`\`\`\n' + elements.analysis + '\n\`\`\`\n\n';
 
-              // Layout
-              const layout = await analyzeUI(base64, PROMPTS.LAYOUT_ANALYSIS);
-              report += `### 📐 Layout\n\`\`\`\n${layout.analysis}\n\`\`\`\n\n`;
+            const layout = await analyzeUI(base64, PROMPTS.LAYOUT_ANALYSIS);
+            report += '### 📐 Layout\n\`\`\`\n' + layout.analysis + '\n\`\`\`\n\n';
 
-              // Errors
-              const errors = await analyzeUI(base64, PROMPTS.ERROR_DETECTION);
-              report += `### ❌ Errors\n\`\`\`\n${errors.analysis}\n\`\`\`\n\n`;
-            }
-
-            fs.writeFileSync('vision-report.md', report);
-            console.log('✅ Vision report generated');
+            const errors = await analyzeUI(base64, PROMPTS.ERROR_DETECTION);
+            report += '### ❌ Errors\n\`\`\`\n' + errors.analysis + '\n\`\`\`\n\n';
           }
 
-          main().catch(console.error);
+          fs.writeFileSync('vision-report.md', report);
+          console.log('✅ Vision report generated');
           "
 
       - name: Upload screenshots
