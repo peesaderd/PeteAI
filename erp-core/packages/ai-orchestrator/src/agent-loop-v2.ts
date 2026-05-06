@@ -13,6 +13,8 @@ import { ChatStore } from "./chat-store.js";
 import { BrowserUse } from "./browser-use.js";
 import { ReviveChat } from "./revive-chat.js";
 import { RateLimiter } from "./rate-limiter.js";
+import { VisionAnalysis, type VisionAnalysisParams } from "./vision-analysis.js";
+import { EtsyBrowserWorkflow, type EtsyListingParams } from "./etsy-browser-workflow.js";
 import { v4 as uuidv4 } from "uuid";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -39,6 +41,8 @@ export class AgentLoopV2 {
   private browser: BrowserUse | null = null;
   private reviveChat: ReviveChat | null = null;
   private rateLimiter: RateLimiter;
+  private vision: VisionAnalysis;
+  private etsyWorkflow: EtsyBrowserWorkflow | null = null;
 
   private status: AgentStatus = "stopped";
   private currentTask: Task | null = null;
@@ -79,6 +83,10 @@ export class AgentLoopV2 {
     this.browser = browser || null;
     this.reviveChat = reviveChat || null;
     this.rateLimiter = rateLimiter || new RateLimiter();
+    this.vision = new VisionAnalysis();
+    if (this.browser) {
+      this.etsyWorkflow = new EtsyBrowserWorkflow(this.browser);
+    }
   }
 
   // ─── Control ───────────────────────────────────────────────
@@ -577,6 +585,60 @@ export class AgentLoopV2 {
       });
     }
 
+    // Vision Analysis tool
+    if (this.vision.isConfigured()) {
+      tools.push({
+        type: "function",
+        function: {
+          name: "analyze_image",
+          description: "Analyze an image using AI vision (GPT-4V, Claude, or Ollama). Returns composition, colors, lighting, style analysis, and a style prompt for image generation.",
+          parameters: {
+            type: "object",
+            properties: {
+              imageBase64: { type: "string", description: "Base64-encoded image data" },
+              mimeType: { type: "string", description: "MIME type (e.g. image/png, image/jpeg)", default: "image/png" },
+              question: { type: "string", description: "Optional specific question about the image" },
+              provider: { type: "string", enum: ["openai", "anthropic", "ollama"], description: "Vision provider to use" },
+            },
+            required: ["imageBase64"],
+          },
+        },
+      });
+    }
+
+    // Etsy workflow tools
+    if (this.etsyWorkflow) {
+      tools.push({
+        type: "function",
+        function: {
+          name: "etsy_create_listing",
+          description: "Create a new Etsy listing with images, title, description, pricing, and tags. Uses browser automation to login and publish.",
+          parameters: {
+            type: "object",
+            properties: {
+              images: { type: "array", items: { type: "string" }, description: "Array of base64-encoded images" },
+              title: { type: "string", description: "Listing title" },
+              description: { type: "string", description: "Listing description" },
+              price: { type: "number", description: "Price in USD" },
+              quantity: { type: "number", description: "Stock quantity", default: 1 },
+              tags: { type: "array", items: { type: "string" }, description: "Up to 13 tags" },
+              materials: { type: "array", items: { type: "string" }, description: "Materials used" },
+            },
+            required: ["images", "title", "description", "price"],
+          },
+        },
+      });
+
+      tools.push({
+        type: "function",
+        function: {
+          name: "etsy_get_status",
+          description: "Get current Etsy workflow status and the last step executed.",
+          parameters: { type: "object", properties: {} },
+        },
+      });
+    }
+
     return tools;
   }
 
@@ -601,6 +663,21 @@ export class AgentLoopV2 {
     if (name === "revive_chat" && this.reviveChat) {
       this.rateLimiter.increment(agentId);
       return await this.reviveChat.sendMessage(args.message);
+    }
+
+    // Vision Analysis tool
+    if (name === "analyze_image") {
+      this.rateLimiter.increment(agentId);
+      return await this.vision.analyze(args as VisionAnalysisParams);
+    }
+
+    // Etsy workflow tools
+    if (name === "etsy_create_listing" && this.etsyWorkflow) {
+      this.rateLimiter.increment(agentId);
+      return await this.etsyWorkflow.createListing(args as EtsyListingParams);
+    }
+    if (name === "etsy_get_status" && this.etsyWorkflow) {
+      return { success: true, data: { step: this.etsyWorkflow.getCurrentStep() } };
     }
 
     // Browser tools ต้องใช้ browser instance
