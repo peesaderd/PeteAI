@@ -53,7 +53,10 @@ module.exports = {
         AGENT_LOOP_ENABLED: "false",
         LLM_API_KEY: "sk-759b9e5043b4480c84a87eb59d5b814f",
         LLM_BASE_URL: "https://api.deepseek.com/v1",
-        LLM_MODEL: "deepseek-chat"
+        LLM_MODEL: "deepseek-chat",
+        OPENHANDS_URL: "http://openhands:3000",
+        OPENHANDS_API_KEY: "",
+        ETSY_API_KEY: ""
       }
     },
     {
