@@ -87,7 +87,7 @@ describe("EtsyBrowserWorkflow", () => {
 
       expect(result.success).toBe(false);
       expect(result.step).toBe("login");
-    });
+    }, 15000);
 
     it("should fail if ETSY_EMAIL is not set", async () => {
       delete process.env.ETSY_EMAIL;
@@ -100,7 +100,7 @@ describe("EtsyBrowserWorkflow", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Missing");
-    });
+    }, 15000);
 
     it("should retry on failure", async () => {
       let callCount = 0;

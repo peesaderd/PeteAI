@@ -1,9 +1,9 @@
 ---
-name: Test Failure Report
+name: 🧪 Test Failure Report
 about: Report a test failure in the ERP Core test pipeline
 title: "[TEST] "
 labels: bug, test
-assignees: ""
+assignees: peesaderd
 
 ---
 

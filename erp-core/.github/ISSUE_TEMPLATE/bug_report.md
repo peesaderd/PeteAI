@@ -1,9 +1,9 @@
 ---
-name: Bug Report
+name: 🐛 Bug Report
 about: Report a bug to help us improve ERP Core
 title: "[BUG] "
 labels: bug
-assignees: ""
+assignees: peesaderd
 
 ---
 

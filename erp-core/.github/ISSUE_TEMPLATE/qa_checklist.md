@@ -1,9 +1,9 @@
 ---
-name: QA Checklist
+name: ✅ QA Checklist
 about: Track QA verification for a feature or release
 title: "[QA] "
 labels: qa
-assignees: ""
+assignees: peesaderd
 
 ---
 
@@ -36,6 +36,12 @@ assignees: ""
 - [ ] Existing features still work
 - [ ] No new console errors
 - [ ] No performance degradation
+
+## Visual QA
+- [ ] Layout tests pass (mobile/tablet/desktop)
+- [ ] Theme tests pass (light/dark)
+- [ ] Accessibility tests pass
+- [ ] No visual regressions detected
 
 ## Browser Compatibility (UI)
 - [ ] Chromium
