@@ -1,0 +1,151 @@
+# ============================================================
+# ERP Core — CI Pipeline
+# ============================================================
+# Runs Vitest unit tests + Playwright E2E on every push/PR
+# ============================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop, test-qa-pipeline, "release/**"]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ==========================================================
+  # Unit & Integration Tests (Vitest)
+  # ==========================================================
+  test:
+    name: "🧪 Vitest (shard ${{ matrix.shard }}/${{ strategy.job-total }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+        job-total: [2]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest (shard ${{ matrix.shard }})
+        run: npx vitest run --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        env:
+          CI: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-results-${{ matrix.shard }}
+          path: test-results/
+          retention-days: 7
+
+  # ==========================================================
+  # E2E Tests (Playwright)
+  # ==========================================================
+  e2e:
+    name: "🌐 Playwright E2E"
+    runs-on: ubuntu-latest
+    needs: [test]
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Build packages
+        run: npm run build -w packages/server -w packages/knowledge-base -w packages/sync-siyuan -w packages/ai-orchestrator
+
+      - name: Start server (background)
+        run: |
+          npx pm2 start ecosystem.config.cjs --only erp-server,knowledge-base,sync-siyuan,ai-orchestrator
+          sleep 5
+          npx pm2 status
+
+      - name: Run Playwright tests
+        run: npx playwright test
+        env:
+          CI: true
+          BASE_URL: http://localhost:3000
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Stop server
+        if: always()
+        run: npx pm2 kill
+
+  # ==========================================================
+  # Test Summary
+  # ==========================================================
+  summary:
+    name: "📋 Test Summary"
+    runs-on: ubuntu-latest
+    needs: [test, e2e]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## 📋 CI Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🧪 Vitest | ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "| 🌐 Playwright E2E | ${{ needs.e2e.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const failures = [];
+            if ('${{ needs.test.result }}' !== 'success') failures.push('🧪 Vitest');
+            if ('${{ needs.e2e.result }}' !== 'success') failures.push('🌐 Playwright E2E');
+
+            const body = `## 🚨 CI Pipeline Failed\n\n### Failed Jobs\n${failures.map(j => `- ${j}`).join('\n')}\n\n### Run URL\n${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}\n\n### Branch\n${process.env.GITHUB_REF_NAME}\n\n### Commit\n${process.env.GITHUB_SHA}`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[CI] Pipeline failed: ${failures.join(', ')}`,
+              body: body,
+              labels: ['bug', 'test']
+            });

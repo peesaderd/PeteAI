@@ -1,0 +1,120 @@
+name: Vision UI Review
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  vision-review:
+    name: DeepSeek Vision UI Review
+    if: |
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'issue_comment' && 
+       contains(github.event.comment.body, '/vision-review'))
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build and start dev server
+        run: |
+          npm run build
+          npm run start &
+          npx wait-on http://localhost:3000 --timeout 30000
+
+      - name: Capture screenshots of all pages
+        run: |
+          mkdir -p screenshots
+          node -e "
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch();
+            const pages = ['/', '/login', '/home', '/pricing', '/builder'];
+            for (const path of pages) {
+              const page = await browser.newPage();
+              await page.goto('http://localhost:3000' + path, { waitUntil: 'networkidle' });
+              const filename = path === '/' ? 'root' : path.replace(/^\//, '').replace(/\//g, '-');
+              await page.screenshot({ path: 'screenshots/' + filename + '.png', fullPage: true });
+              await page.close();
+            }
+            await browser.close();
+          })();
+          "
+
+      - name: Run DeepSeek Vision Analysis
+        id: vision
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          node --input-type=module -e "
+          import fs from 'fs';
+          import path from 'path';
+          import { analyzeUI, PROMPTS } from './tests/vision/deepseek-vision.js';
+
+          const screenshots = fs.readdirSync('screenshots').filter(f => f.endsWith('.png'));
+          let report = '# 🎯 Vision UI Review\n\n';
+
+          for (const file of screenshots) {
+            const img = fs.readFileSync(path.join('screenshots', file));
+            const base64 = img.toString('base64');
+            const pageName = file.replace(/\.png$/, '');
+
+            report += '## 📄 Page: ' + pageName + '\n\n';
+
+            const elements = await analyzeUI(base64, PROMPTS.UI_ELEMENTS);
+            report += '### 🔍 UI Elements\n\`\`\`\n' + elements.analysis + '\n\`\`\`\n\n';
+
+            const layout = await analyzeUI(base64, PROMPTS.LAYOUT_ANALYSIS);
+            report += '### 📐 Layout\n\`\`\`\n' + layout.analysis + '\n\`\`\`\n\n';
+
+            const errors = await analyzeUI(base64, PROMPTS.ERROR_DETECTION);
+            report += '### ❌ Errors\n\`\`\`\n' + errors.analysis + '\n\`\`\`\n\n';
+          }
+
+          fs.writeFileSync('vision-report.md', report);
+          console.log('✅ Vision report generated');
+          "
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: vision-screenshots
+          path: screenshots/
+          retention-days: 7
+
+      - name: Upload vision report
+        uses: actions/upload-artifact@v4
+        with:
+          name: vision-report
+          path: vision-report.md
+          retention-days: 7
+
+      - name: Comment vision report on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('vision-report.md', 'utf8');
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: report
+            });

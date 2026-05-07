@@ -18,7 +18,7 @@ export function createProxyRouter() {
   // Proxy all requests to a registered service
   // GET/POST/PUT/PATCH/DELETE /proxy/:serviceName/*
   router.all('/:serviceName/*', async (req: Request, res: Response) => {
-    const { serviceName } = req.params;
+    const serviceName = req.params.serviceName as string;
     const svc = registry.getService(serviceName);
 
     if (!svc) {

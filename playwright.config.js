@@ -1,0 +1,13 @@
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './tests',
+  testMatch: ['**/e2e/**/*.spec.js', '**/vision/*.spec.js'],
+  timeout: 30000,
+  expect: {
+    timeout: 10000
+  },
+  use: {
+    headless: true
+  }
+});

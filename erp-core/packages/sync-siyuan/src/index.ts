@@ -11,7 +11,9 @@ import path from "path";
 
 const PORT = parseInt(process.env.SYNC_PORT || "54513", 10);
 const SIYUAN_URL = process.env.SIYUAN_URL || "http://siyuan:54511";
-const SIYUAN_TOKEN = process.env.SIYUAN_API_TOKEN || "";
+function getSiyuanToken(): string {
+  return process.env.SIYUAN_API_TOKEN || "";
+}
 const KB_URL = process.env.KB_URL || "http://knowledge-base:3100";
 const SYNC_INTERVAL_MS = parseInt(process.env.SYNC_INTERVAL || "60000", 10);
 
@@ -26,13 +28,14 @@ interface SyncState {
 // SiYuan API Client
 // ============================================================
 
-async function siyuanPost(endpoint: string, body: any): Promise<any> {
+export async function siyuanPost(endpoint: string, body: any): Promise<any> {
   const url = `${SIYUAN_URL}${endpoint}`;
+  const token = getSiyuanToken();
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Token ${SIYUAN_TOKEN}`,
+      ...(token ? { Authorization: `Token ${token}` } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -42,12 +45,12 @@ async function siyuanPost(endpoint: string, body: any): Promise<any> {
   return res.json();
 }
 
-async function listNotebooks(): Promise<any[]> {
+export async function listNotebooks(): Promise<any[]> {
   const data = await siyuanPost("/api/notebook/lsNotebooks", {});
   return data.data?.notebooks || [];
 }
 
-async function listDocs(notebookId: string): Promise<any[]> {
+export async function listDocs(notebookId: string): Promise<any[]> {
   const data = await siyuanPost("/api/filetree/listDocsByPath", {
     notebook: notebookId,
     path: "/",
@@ -55,12 +58,12 @@ async function listDocs(notebookId: string): Promise<any[]> {
   return data.data?.files || [];
 }
 
-async function exportMd(docId: string): Promise<string> {
+export async function exportMd(docId: string): Promise<string> {
   const data = await siyuanPost("/api/export/exportMdContent", { id: docId });
   return data.data?.content || "";
 }
 
-async function getDocInfo(docId: string): Promise<any> {
+export async function getDocInfo(docId: string): Promise<any> {
   const data = await siyuanPost("/api/filetree/getDoc", { id: docId });
   return data.data;
 }
@@ -69,7 +72,7 @@ async function getDocInfo(docId: string): Promise<any> {
 // KB API Client
 // ============================================================
 
-async function kbPost(endpoint: string, body: any): Promise<any> {
+export async function kbPost(endpoint: string, body: any): Promise<any> {
   const url = `${KB_URL}${endpoint}`;
   const res = await fetch(url, {
     method: "POST",
@@ -83,14 +86,14 @@ async function kbPost(endpoint: string, body: any): Promise<any> {
   return res.json();
 }
 
-async function kbGet(endpoint: string): Promise<any> {
+export async function kbGet(endpoint: string): Promise<any> {
   const url = `${KB_URL}${endpoint}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`KB GET ${endpoint}: ${res.status}`);
   return res.json();
 }
 
-async function createKbDocument(
+export async function createKbDocument(
   collectionId: string,
   title: string,
   content: string,
@@ -99,13 +102,13 @@ async function createKbDocument(
   return kbPost("/api/documents", { collectionId, title, content, tags });
 }
 
-async function findKbCollection(name: string): Promise<string | null> {
+export async function findKbCollection(name: string): Promise<string | null> {
   const collections: any[] = await kbGet("/api/collections");
   const found = collections.find((c) => c.name === name);
   return found ? found.id : null;
 }
 
-async function ensureKbCollection(name: string): Promise<string> {
+export async function ensureKbCollection(name: string): Promise<string> {
   const existing = await findKbCollection(name);
   if (existing) return existing;
   const col = await kbPost("/api/collections", {
@@ -120,7 +123,7 @@ async function ensureKbCollection(name: string): Promise<string> {
 // Sync Engine
 // ============================================================
 
-class SiYuanSync {
+export class SiYuanSync {
   private state: SyncState = {};
   private statePath = "./data/siyuan-sync-state.json";
   private isRunning = false;
@@ -293,45 +296,54 @@ class SiYuanSync {
 // HTTP Server
 // ============================================================
 
-const sync = new SiYuanSync();
+export function createApp() {
+  const sync = new SiYuanSync();
+  const app = express();
+  app.use(cors());
+  app.use(express.json());
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+  app.get("/health", (_req: any, res: any) => {
+    res.json({ status: "ok", service: "sync-siyuan", ...sync.getStats() });
+  });
 
-app.get("/health", (_req: any, res: any) => {
-  res.json({ status: "ok", service: "sync-siyuan", ...sync.getStats() });
-});
+  app.post("/sync", async (_req: any, res: any) => {
+    try {
+      const result = await sync.syncAll();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-app.post("/sync", async (_req: any, res: any) => {
-  try {
-    const result = await sync.syncAll();
-    res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  app.post("/webhook/siyuan", async (req: any, res: any) => {
+    try {
+      const { docId } = req.body;
+      if (!docId) return res.status(400).json({ error: "docId required" });
+      const ok = await sync.syncDoc(docId);
+      res.json({ success: ok });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-app.post("/webhook/siyuan", async (req: any, res: any) => {
-  try {
-    const { docId } = req.body;
-    if (!docId) return res.status(400).json({ error: "docId required" });
-    const ok = await sync.syncDoc(docId);
-    res.json({ success: ok });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  app.get("/stats", (_req: any, res: any) => {
+    res.json(sync.getStats());
+  });
 
-app.get("/stats", (_req: any, res: any) => {
-  res.json(sync.getStats());
-});
+  setupReverseSync(app);
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`[Sync] SiYuan Sync Service running on http://0.0.0.0:${PORT}`);
-  console.log(`[Sync] SiYuan: ${SIYUAN_URL}, KB: ${KB_URL}`);
-  sync.startPeriodicSync();
-});
+  return { app, sync };
+}
+
+export function startServer() {
+  const { app, sync } = createApp();
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`[Sync] SiYuan Sync Service running on http://0.0.0.0:${PORT}`);
+    console.log(`[Sync] SiYuan: ${SIYUAN_URL}, KB: ${KB_URL}`);
+    sync.startPeriodicSync();
+  });
+}
 
 // ============================================================
 // Reverse Sync (KB → SiYuan)
@@ -372,7 +384,7 @@ async function updateSiYuanDoc(notebookId: string, docPath: string, markdown: st
   }
 }
 
-class ReverseSync {
+export class ReverseSync {
   private statePath = "./data/reverse-sync-state.json";
   private state: { [kbDocId: string]: { lastSync: number; hash: string } } = {};
   private stats = { totalSynced: 0, lastSyncTime: 0, errors: 0 };
@@ -493,32 +505,36 @@ class ReverseSync {
   }
 }
 
-const reverseSync = new ReverseSync();
+export function setupReverseSync(app: express.Application) {
+  const reverseSync = new ReverseSync();
 
-// Add reverse sync endpoints
-app.get("/reverse/stats", (_req: any, res: any) => {
-  res.json(reverseSync.getStats());
-});
+  // Add reverse sync endpoints
+  app.get("/reverse/stats", (_req: any, res: any) => {
+    res.json(reverseSync.getStats());
+  });
 
-app.post("/reverse/sync", async (_req: any, res: any) => {
-  try {
-    const result = await reverseSync.syncAll();
-    res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Run reverse sync periodically (every 5 minutes)
-setInterval(async () => {
-  try {
-    const result = await reverseSync.syncAll();
-    if (result.synced > 0 || result.errors > 0) {
-      console.log(`[ReverseSync] Cycle: ${result.synced} synced, ${result.skipped} skipped, ${result.errors} errors`);
+  app.post("/reverse/sync", async (_req: any, res: any) => {
+    try {
+      const result = await reverseSync.syncAll();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
-  } catch (err: any) {
-    console.error(`[ReverseSync] Cycle error: ${err.message}`);
-  }
-}, 300000);
+  });
 
-console.log("[ReverseSync] Reverse sync initialized (runs every 5 minutes)");
+  // Run reverse sync periodically (every 5 minutes)
+  setInterval(async () => {
+    try {
+      const result = await reverseSync.syncAll();
+      if (result.synced > 0 || result.errors > 0) {
+        console.log(`[ReverseSync] Cycle: ${result.synced} synced, ${result.skipped} skipped, ${result.errors} errors`);
+      }
+    } catch (err: any) {
+      console.error(`[ReverseSync] Cycle error: ${err.message}`);
+    }
+  }, 300000);
+
+  console.log("[ReverseSync] Reverse sync initialized (runs every 5 minutes)");
+
+  return reverseSync;
+}

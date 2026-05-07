@@ -371,16 +371,18 @@ export class EtsyBrowserWorkflow {
   // ─── Helpers ──────────────────────────────────────────
 
   private async withRetry(fn: () => Promise<EtsyWorkflowResult>): Promise<EtsyWorkflowResult> {
+    let lastError = "";
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       const result = await fn();
       if (result.success) return result;
 
-      console.log(`[EtsyWorkflow] Retry ${attempt + 1}/${this.maxRetries} after error: ${result.error}`);
+      lastError = result.error || "Unknown error";
       if (attempt < this.maxRetries - 1) {
+        console.log(`[EtsyWorkflow] Retry ${attempt + 1}/${this.maxRetries} after error: ${lastError}`);
         await this.sleep(this.retryDelay * Math.pow(2, attempt));
       }
     }
-    return await fn();
+    return { success: false, step: this.currentStep, error: lastError };
   }
 
   private extractListingId(url: string): string | undefined {

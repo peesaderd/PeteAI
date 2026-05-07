@@ -1,46 +1,42 @@
 ---
 name: QA Checklist
-about: Track QA verification for a feature or release
+about: Track quality assurance tasks for a release or feature
 title: "[QA] "
 labels: qa
-assignees: ""
+assignees: peesaderd
 
 ---
 
 ## Release / Feature
-**Version / Feature**: 
+<!-- Specify the release version or feature name -->
 
-## Pre-Checks
-- [ ] All unit tests pass (17/17)
-- [ ] All E2E tests pass
-- [ ] TypeScript compilation passes
-- [ ] Docker images build successfully
+## Checklist
+
+### Unit Tests
+- [ ] All unit tests pass
+- [ ] New features have test coverage
+- [ ] Edge cases are covered
+
+### Integration Tests
+- [ ] API endpoints respond correctly
+- [ ] Database operations work as expected
+- [ ] External service integrations are tested
+
+### E2E Tests
+- [ ] Critical user flows work end-to-end
+- [ ] Error states are handled gracefully
+
+### Code Quality
 - [ ] No linting errors
+- [ ] Code follows project conventions
+- [ ] No dead code or commented-out code
 
-## Functional Testing
-- [ ] Homepage loads correctly
-- [ ] Navigation sidebar is visible and functional
-- [ ] Dashboard page loads
-- [ ] API health endpoint returns OK
-- [ ] MCP endpoint responds correctly
-- [ ] Authentication returns proper status codes
-- [ ] 404 handling works for unknown routes
+### Documentation
+- [ ] README is up to date
+- [ ] API documentation is accurate
+- [ ] Setup instructions are correct
 
-## Integration Testing
-- [ ] ERP Core API responds correctly
-- [ ] Knowledge Base service is accessible
-- [ ] Redis connection works
-- [ ] AI Orchestrator endpoints respond
-
-## Regression Testing
-- [ ] Existing features still work
-- [ ] No new console errors
-- [ ] No performance degradation
-
-## Browser Compatibility (UI)
-- [ ] Chromium
-- [ ] Firefox
-- [ ] WebKit
-
-## Notes
-Add any additional notes or observations here.
+## Results
+**Passed:** 0 / 0
+**Failed:** 0 / 0
+**Notes:**

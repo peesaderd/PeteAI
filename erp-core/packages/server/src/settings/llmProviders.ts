@@ -71,7 +71,7 @@ export function createLLMProvidersRouter(): Router {
 
   // GET /api/settings/llm-providers/models/:type - get available models for a provider type
   router.get('/models/:type', (req: Request, res: Response) => {
-    const ptype = req.params.type;
+    const ptype = req.params.type as string;
     const models = PROVIDER_MODELS[ptype] || [];
     res.json({ status: 'ok', data: models });
   });

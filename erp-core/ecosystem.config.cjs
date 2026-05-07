@@ -1,13 +1,17 @@
+const path = require('path');
+
+const ERP_ROOT = path.resolve(__dirname);
+
 module.exports = {
   apps: [
     {
       name: "erp-server",
-      cwd: "/root/erp-core/erp-core/packages/server",
+      cwd: path.join(ERP_ROOT, "packages/server"),
       script: "dist/index.js",
       env: {
         PORT: "3000",
         NODE_ENV: "production",
-        DB_PATH: "/root/erp-core/erp-core/packages/server/data/erp.db",
+        DB_PATH: path.join(ERP_ROOT, "packages/server/data/erp.db"),
         JWT_SECRET: "erp-core-jwt-secret-2026",
         TENANT_ID: "t_001",
         KB_URL: "http://127.0.0.1:3100",
@@ -20,17 +24,17 @@ module.exports = {
     },
     {
       name: "knowledge-base",
-      cwd: "/root/erp-core/erp-core/packages/knowledge-base",
+      cwd: path.join(ERP_ROOT, "packages/knowledge-base"),
       script: "dist/index.js",
       env: {
         PORT: "3100",
         NODE_ENV: "production",
-        DB_PATH: "/root/erp-core/erp-core/packages/knowledge-base/data/kb.db"
+        DB_PATH: path.join(ERP_ROOT, "packages/knowledge-base/data/kb.db")
       }
     },
     {
       name: "sync-siyuan",
-      cwd: "/root/erp-core/erp-core/packages/sync-siyuan",
+      cwd: path.join(ERP_ROOT, "packages/sync-siyuan"),
       script: "dist/index.js",
       env: {
         SYNC_PORT: "54513",
@@ -42,7 +46,7 @@ module.exports = {
     },
     {
       name: "ai-orchestrator",
-      cwd: "/root/erp-core/erp-core/packages/ai-orchestrator",
+      cwd: path.join(ERP_ROOT, "packages/ai-orchestrator"),
       script: "dist/index.js",
       env: {
         PORT: "54516",
@@ -56,47 +60,7 @@ module.exports = {
         LLM_MODEL: "deepseek-chat"
       }
     },
-    {
-      name: "system-agent",
-      cwd: "/root/erp-core/erp-core/packages/system-agent",
-      script: "dist/index.js",
-      env: {
-        PORT: "54520",
-        NODE_ENV: "production"
-      }
-    },
-    {
-      name: "task-manager",
-      cwd: "/root/erp-core/erp-core/packages/task-manager",
-      script: "dist/index.js",
-      env: {
-        PORT: "54519",
-        NODE_ENV: "production"
-      }
-    },
-    {
-      name: "ai-docs-updater",
-      cwd: "/root/erp-core/erp-core/packages/ai-docs-updater",
-      script: "dist/index.js",
-      env: {
-        AI_DOCS_PORT: "54517",
-        SIYUAN_URL: "http://127.0.0.1:54511",
-        SIYUAN_API_TOKEN: "w8qyx729d7pm5zqn",
-        ERP_ROOT: "/root/erp-core/erp-core",
-        UPDATE_INTERVAL: "300000"
-      }
-    },
-    {
-      name: "telegram-bot",
-      cwd: "/root/erp-core/erp-core/packages/telegram-bot",
-      script: "dist/index.js",
-      env: {
-        TELEGRAM_BOT_TOKEN: "8635403645:AAEY_O9EoaStBI6JI8xi3OW38Tgspf8orBI",
-        ORCHESTRATOR_URL: "http://127.0.0.1:54516",
-        BOT_LANGUAGE: "th",
-        WEBHOOK_PORT: "54521",
-        WEBHOOK_PATH: "/webhook"
-      }
-    }
+    // system-agent, task-manager, ai-docs-updater, telegram-bot
+    // are not built yet — add them to ecosystem when they exist
   ]
 };
