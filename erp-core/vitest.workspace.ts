@@ -30,6 +30,15 @@ export default defineWorkspace([
   },
   {
     test: {
+      name: "sync-siyuan",
+      root: "./packages/sync-siyuan",
+      include: ["src/**/*.test.ts"],
+      exclude: ["**/node_modules/**", "**/dist/**"],
+      environment: "node",
+    },
+  },
+  {
+    test: {
       name: "e2e",
       root: "./e2e",
       include: ["*.test.ts"],

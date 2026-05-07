@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+        env:
+          CI: true
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+        continue-on-error: true
+        env:
+          CI: true
+
+      - name: Run sync-siyuan tests
+        run: npx vitest run --config packages/sync-siyuan/vitest.config.ts
+        env:
+          CI: true
+
+      - name: Check test results
+        if: failure()
+        run: |
+          echo "::warning::Some tests failed. Check the logs above for details."
