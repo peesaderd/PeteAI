@@ -37,10 +37,10 @@ services:
     container_name: erp-core
     restart: unless-stopped
     ports:
-      - "3000:3000"      # ERP Server API
-      - "3100:3100"      # Knowledge Base API
-      - "54513:54513"    # SiYuan Sync Service
-      - "54516:54516"    # AI Orchestrator
+      - "3001:3000"      # ERP Server API
+      - "3101:3100"      # Knowledge Base API
+      - "54514:54513"    # SiYuan Sync Service
+      - "54518:54516"    # AI Orchestrator
     volumes:
       - erp-server-data:/app/packages/server/data
       - erp-kb-data:/app/packages/knowledge-base/data
