@@ -60,59 +60,7 @@ module.exports = {
         LLM_MODEL: "deepseek-chat"
       }
     },
-    {
-      name: "system-agent",
-      cwd: path.join(ERP_ROOT, "packages/system-agent"),
-      script: "dist/index.js",
-      error_file: "/dev/null",
-      out_file: "/dev/null",
-      autorestart: false,
-      env: {
-        PORT: "54520",
-        NODE_ENV: "production"
-      }
-    },
-    {
-      name: "task-manager",
-      cwd: path.join(ERP_ROOT, "packages/task-manager"),
-      script: "dist/index.js",
-      error_file: "/dev/null",
-      out_file: "/dev/null",
-      autorestart: false,
-      env: {
-        PORT: "54519",
-        NODE_ENV: "production"
-      }
-    },
-    {
-      name: "ai-docs-updater",
-      cwd: path.join(ERP_ROOT, "packages/ai-docs-updater"),
-      script: "dist/index.js",
-      error_file: "/dev/null",
-      out_file: "/dev/null",
-      autorestart: false,
-      env: {
-        AI_DOCS_PORT: "54517",
-        SIYUAN_URL: "http://127.0.0.1:54511",
-        SIYUAN_API_TOKEN: "w8qyx729d7pm5zqn",
-        ERP_ROOT: ERP_ROOT,
-        UPDATE_INTERVAL: "300000"
-      }
-    },
-    {
-      name: "telegram-bot",
-      cwd: path.join(ERP_ROOT, "packages/telegram-bot"),
-      script: "dist/index.js",
-      error_file: "/dev/null",
-      out_file: "/dev/null",
-      autorestart: false,
-      env: {
-        TELEGRAM_BOT_TOKEN: "8635403645:AAEY_O9EoaStBI6JI8xi3OW38Tgspf8orBI",
-        ORCHESTRATOR_URL: "http://127.0.0.1:54516",
-        BOT_LANGUAGE: "th",
-        WEBHOOK_PORT: "54521",
-        WEBHOOK_PATH: "/webhook"
-      }
-    }
+    // system-agent, task-manager, ai-docs-updater, telegram-bot
+    // are not built yet — add them to ecosystem when they exist
   ]
 };
