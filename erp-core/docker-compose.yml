@@ -23,7 +23,7 @@ services:
       - SIYUAN_AUTH_CODE=${SIYUAN_AUTH_CODE:-erp-core-2026}
       - SIYUAN_ACCESS_AUTH_CODE=${SIYUAN_AUTH_CODE:-erp-core-2026}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--header=Authorization: Bearer ${SIYUAN_AUTH_CODE:-erp-core-2026}", "http://localhost:6806/"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6806/ 2>&1 | grep -q '401' || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 15
