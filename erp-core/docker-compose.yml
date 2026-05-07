@@ -1,186 +1,103 @@
+# ============================================================
+# ERP Core + SiYuan — Docker Compose
+# ============================================================
+# Usage:
+#   docker compose up -d              # Start all services
+#   docker compose logs -f            # Follow logs
+#   docker compose down               # Stop all services
+# ============================================================
+
 services:
-  ai-orchestrator:
-    build:
-      context: ./packages/ai-orchestrator
-      dockerfile: Dockerfile
-    depends_on:
-    - erp-core
-    - redis
-    environment:
-    - ORCHESTRATOR_PORT=54516
-    - ORCHESTRATOR_DB_PATH=/app/data/orchestrator.db
-    - ERP_MCP_URL=http://erp-core:54510/api/mcp
-    - AGENCY_API_URL=http://autonomous-agency:80
-    - SIYUAN_URL=http://172.18.0.1:54511
-    - SIYUAN_TOKEN=9w4oqxucqvq1o8sd
-    - TASK_MANAGER_URL=http://task-manager:8081
-    - AGENT_LOOP_ENABLED=true
-    - REDIS_URL=redis://redis:6379
-    - LLM_API_URL=https://api.deepseek.com
-    - LLM_API_KEY=${DEEPSEEK_API_KEY}
-    - LLM_MODEL=deepseek-chat
-    - LLM_MAX_TOKENS=8192
-    - LLM_TEMPERATURE=0.3
-    - SUPERVISOR_INACTIVITY_TIMEOUT_MS=60000
-    - SUPERVISOR_INACTIVITY_ALERT_TIMEOUT_MS=120000
-    - SUPERVISOR_AUTO_PROMPT_ENABLED=true
-    ports:
-    - 54516:54516
+  # ==========================================================
+  # SiYuan Note — Persistent Knowledge Base (笔记)
+  # ==========================================================
+  siyuan:
+    image: b3log/siyuan:latest
+    container_name: erp-siyuan
     restart: unless-stopped
+    ports:
+      - "54511:6806"
     volumes:
-    - ./data:/app/data
+      - siyuan-data:/siyuan/workspace
+    environment:
+      - SIYUAN_AUTH_CODE=${SIYUAN_AUTH_CODE:-erp-core-2026}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6806/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ==========================================================
+  # ERP Core — All-in-One (PM2 managed)
+  # ==========================================================
   erp-core:
     build: .
-    environment:
-    - PORT=54510
-    - ERP_CORE_URL=http://localhost:54510
-    - NODE_ENV=production
-    - SIYUAN_API_TOKEN=9w4oqxucqvq1o8sd
-    ports:
-    - 54510:54510
+    container_name: erp-core
     restart: unless-stopped
-    volumes:
-    - ./data:/app/data
-    - ./packages/web/dist:/app/packages/web/dist
-  knowledge-base:
-    build:
-      context: .
-      dockerfile: Dockerfile.knowledge-base
-    environment:
-    - PORT=3100
-    - KB_DB_PATH=/app/data/knowledge-base.db
-    - KB_DATA_DIR=/app/data/kb-files
     ports:
-    - 54512:3100
-    restart: unless-stopped
+      - "3000:3000"      # ERP Server API
+      - "3100:3100"      # Knowledge Base API
+      - "54513:54513"    # SiYuan Sync Service
+      - "54516:54516"    # AI Orchestrator
     volumes:
-    - ./data:/app/data
+      - erp-server-data:/app/packages/server/data
+      - erp-kb-data:/app/packages/knowledge-base/data
+      - erp-sync-data:/app/packages/sync-siyuan/data
+    environment:
+      # ERP Server
+      - PORT=3000
+      - MODE=http
+      - NODE_ENV=production
+      - DB_PATH=/app/packages/server/data/erp.db
+      - JWT_SECRET=${JWT_SECRET:-erp-core-jwt-secret-2026}
+      - TENANT_ID=t_001
+
+      # Knowledge Base
+      - KB_PORT=3100
+      - KB_DB_PATH=/app/packages/knowledge-base/data/kb.db
+
+      # SiYuan Sync
+      - SYNC_PORT=54513
+      - SIYUAN_URL=http://siyuan:6806
+      - SIYUAN_API_TOKEN=${SIYUAN_API_TOKEN:-}
+      - KB_URL=http://localhost:3100
+      - SYNC_INTERVAL=60000
+
+      # AI Orchestrator
+      - ORCHESTRATOR_PORT=54516
+      - KB_URL_ORCH=http://localhost:3100
+      - SIYUAN_URL_ORCH=http://siyuan:6806
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+    depends_on:
+      siyuan:
+        condition: service_healthy
+
+  # ==========================================================
+  # Redis (for AI Orchestrator)
+  # ==========================================================
   redis:
     image: redis:7-alpine
-    ports:
-    - 6379:6379
+    container_name: erp-redis
     restart: unless-stopped
-    volumes:
-    - redis-data:/data
-  sync-siyuan:
-    build:
-      context: .
-      dockerfile: Dockerfile.sync-siyuan
-    depends_on:
-    - knowledge-base
-    environment:
-    - SYNC_PORT=54513
-    - SIYUAN_URL=http://siyuan:54511
-    - SIYUAN_API_TOKEN=9w4oqxucqvq1o8sd
-    - KB_URL=http://knowledge-base:3100
-    - SYNC_INTERVAL=60000
     ports:
-    - 54513:54513
-    restart: unless-stopped
+      - "6379:6379"
     volumes:
-    - ./data:/app/data
-  system-agent:
-    build:
-      context: ./packages/system-agent
-      dockerfile: Dockerfile
-    depends_on:
-    - ai-orchestrator
-    - redis
-    environment:
-    - SIYUAN_URL=http://siyuan:54511
-    - SIYUAN_TOKEN=9w4oqxucqvq1o8sd
-    - REPO_ROOT=/repo
-    - SYSTEM_AGENT_PORT=54520
-    - ORCHESTRATOR_URL=http://ai-orchestrator:54516
-    - REDIS_URL=redis://redis:6379
-    - LLM_API_URL=https://api.deepseek.com
-    - LLM_API_KEY=${DEEPSEEK_API_KEY}
-    - LLM_MODEL=deepseek-chat
-    - LLM_MAX_TOKENS=8192
-    - LLM_TEMPERATURE=0.3
-    - SUPERVISOR_INACTIVITY_TIMEOUT_MS=60000
-    - SUPERVISOR_INACTIVITY_ALERT_TIMEOUT_MS=120000
-    - SUPERVISOR_AUTO_PROMPT_ENABLED=true
-    ports:
-    - 54520:54520
-    restart: unless-stopped
-    volumes:
-    - ..:/repo:ro
-    - /var/run/docker.sock:/var/run/docker.sock
-    - /root/.openhands:/root/.openhands:ro
-    - ./packages/ai-orchestrator/.conversations:/conversations:ro
-  task-manager:
-    build:
-      context: .
-      dockerfile: Dockerfile.task-manager
-    environment:
-    - PORT=8081
-    - TASK_MANAGER_DB_PATH=/app/data/task-manager.db
-    ports:
-    - 8082:8081
-    restart: unless-stopped
-    volumes:
-    - ./data:/app/data
-  # ── Monitoring & Observability ──────────────────────────────
-  loki:
-    image: grafana/loki:3.0.0
-    ports:
-      - 54530:3100
-    command: -config.file=/etc/loki/local-config.yaml
-    restart: unless-stopped
-    volumes:
-      - loki-data:/loki
+      - redis-data:/data
 
-  promtail:
-    image: grafana/promtail:3.0.0
-    command: -config.file=/etc/promtail/promtail.yml
-    restart: unless-stopped
-    volumes:
-      - /var/log:/var/log:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./monitoring/promtail.yml:/etc/promtail/promtail.yml
-
-  prometheus:
-    image: prom/prometheus:v2.53.0
-    ports:
-      - 54531:9090
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --web.console.libraries=/usr/share/prometheus/console_libraries
-      - --web.console.templates=/usr/share/prometheus/consoles
-    restart: unless-stopped
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-data:/prometheus
-
-  grafana:
-    image: grafana/grafana:11.0.0
-    ports:
-      - 54532:3000
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_INSTALL_PLUGINS=
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-    restart: unless-stopped
-    volumes:
-      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
-      - ./monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
-      - ./monitoring/erp-dashboard.json:/var/lib/grafana/dashboards/erp-dashboard.json
-      - grafana-data:/var/lib/grafana
-
-  node-exporter:
-    image: prom/node-exporter:v1.8.0
-    command:
-      - --path.rootfs=/host
-    restart: unless-stopped
-    volumes:
-      - /:/host:ro,rslave
-    pid: host
-
-
+# ============================================================
+# Persistent Volumes
+# ============================================================
 volumes:
-  redis-data: {}
-  loki-data: {}
-  prometheus-data: {}
-  grafana-data: {}
+  siyuan-data:
+    name: erp-siyuan-data
+  erp-server-data:
+    name: erp-server-data
+  erp-kb-data:
+    name: erp-kb-data
+  erp-sync-data:
+    name: erp-sync-data
+  redis-data:
+    name: erp-redis-data
