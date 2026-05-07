@@ -14,6 +14,7 @@ import { BrowserUse } from "./browser-use.js";
 import { ReviveChat } from "./revive-chat.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { VisionAnalysis, type VisionAnalysisParams } from "./vision-analysis.js";
+import { OpenHandsBridge, type OpenHandsTask } from "./openhands-bridge.js";
 import { EtsyBrowserWorkflow, type EtsyListingParams } from "./etsy-browser-workflow.js";
 import { EtsyApiClient, EtsyApiError, type EtsyApiConfig, type EtsyToken } from "./etsy-api-client.js";
 import { v4 as uuidv4 } from "uuid";
@@ -44,6 +45,7 @@ export class AgentLoopV2 {
   private rateLimiter: RateLimiter;
   private vision: VisionAnalysis;
   private etsyWorkflow: EtsyBrowserWorkflow | null = null;
+  private openhandsBridge: OpenHandsBridge | null = null;
   private etsyApi: EtsyApiClient | null = null;
 
   private status: AgentStatus = "stopped";
@@ -76,6 +78,7 @@ export class AgentLoopV2 {
     browser?: BrowserUse,
     reviveChat?: ReviveChat,
     rateLimiter?: RateLimiter,
+    openhandsBridge?: OpenHandsBridge,
     etsyApiConfig?: EtsyApiConfig,
   ) {
     this.llm = llm;
@@ -86,6 +89,7 @@ export class AgentLoopV2 {
     this.browser = browser || null;
     this.reviveChat = reviveChat || null;
     this.rateLimiter = rateLimiter || new RateLimiter();
+    this.openhandsBridge = openhandsBridge || null;
     this.vision = new VisionAnalysis();
     if (this.browser) {
       this.etsyWorkflow = new EtsyBrowserWorkflow(this.browser);
@@ -590,6 +594,25 @@ export class AgentLoopV2 {
         },
       });
     }
+    // OpenHands Bridge tool
+    if (this.openhandsBridge && this.openhandsBridge.isConfigured()) {
+      tools.push({
+        type: "function",
+        function: {
+          name: "openhands_run_task",
+          description: "Send a complex task to OpenHands AI agent for execution. Use this for tasks that require coding, file operations, web research, or multi-step reasoning that the current agent cannot handle.",
+          parameters: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Short title for the task" },
+              description: { type: "string", description: "Detailed description of what needs to be done" },
+              input: { type: "object", description: "Optional input data for the task", default: {} },
+            },
+            required: ["title", "description"],
+          },
+        },
+      });
+    }
 
     // Vision Analysis tool
     if (this.vision.isConfigured()) {
@@ -792,6 +815,18 @@ export class AgentLoopV2 {
       return await this.reviveChat.sendMessage(args.message);
     }
 
+    // OpenHands Bridge tool
+    if (name === "openhands_run_task" && this.openhandsBridge) {
+      this.rateLimiter.increment(agentId);
+      const ohTask: OpenHandsTask = {
+        id: task.id,
+        title: args.title || task.title,
+        description: args.description || task.description,
+        input: args.input || task.input,
+        sessionId: task.sessionId || undefined,
+      };
+      return await this.openhandsBridge.sendTask(ohTask);
+    }
     // Vision Analysis tool
     if (name === "analyze_image") {
       this.rateLimiter.increment(agentId);

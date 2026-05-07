@@ -77,7 +77,15 @@ async function main() {
     const taskQueue = new TaskQueue();
     console.log("[Server] Task Queue ready (SQLite)");
     // Agent Loop v2 — Controllable, task-based autonomous agent
-    const agentLoopV2 = new AgentLoopV2(llmGateway, taskQueue, toolRouter, memory, chatStore, browserUse);
+    // --- OpenHands Bridge (top-level singleton) ---
+  const openhandsBridge = new OpenHandsBridge(browserUse, llmGateway);
+  if (openhandsBridge.isConfigured()) {
+    console.log("[Server] OpenHands Bridge ready");
+  } else {
+    console.warn("[Server] OpenHands Bridge not configured - set OPENHANDS_URL");
+  }
+
+    const agentLoopV2 = new AgentLoopV2(llmGateway, taskQueue, toolRouter, memory, chatStore, browserUse, undefined, undefined, openhandsBridge);
     // Event callbacks
     agentLoopV2.onTaskStart = (task) => {
         console.log(`[AgentLoopV2] Task started: ${task.id} (${task.title})`);
@@ -97,24 +105,46 @@ async function main() {
     agentLoopV2.start();
     console.log("[Server] Agent Loop v2 auto-started");
   }
-
-  // --- OpenHands Bridge (top-level singleton) ---
-  const openhandsBridge = new OpenHandsBridge(browserUse, llmGateway);
-  if (openhandsBridge.isConfigured()) {
-    console.log("[Server] OpenHands Bridge ready");
-  } else {
-    console.warn("[Server] OpenHands Bridge not configured - set OPENHANDS_URL");
-  }
-
-  // --- Etsy Pipeline (top-level singleton) ---
-  const etsyPipeline = new EtsyPipeline(llmGateway, toolRouter, browserUse);
-  if (etsyPipeline.isConfigured()) {
-    console.log("[Server] Etsy Pipeline ready");
-  } else {
-    console.warn("[Server] Etsy Pipeline not configured - set ETSY_API_KEY");
-  }
-
     // ============================================================
+    // ============================================================
+    // OpenHands Bridge API
+    // ============================================================
+    app.get("/api/openhands/status", (_req, res) => {
+      const config = openhandsBridge.getConfig();
+      res.json({
+        configured: openhandsBridge.isConfigured(),
+        url: config.url ? config.url.replace(/\/.*$/, "...") : null,
+        hasApiKey: !!config.apiKey,
+        activeConversations: openhandsBridge.getActiveConversations(),
+      });
+    });
+
+    app.post("/api/openhands/task", async (req, res) => {
+      try {
+        const { title, description, input } = req.body;
+        if (!title || !description) {
+          return res.status(400).json({ error: "title and description are required" });
+        }
+        const result = await openhandsBridge.sendTask({
+          id: "api_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+          title,
+          description,
+          input: input || {},
+        });
+        res.json(result);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post("/api/openhands/stop/:conversationId", async (req, res) => {
+      try {
+        const ok = await openhandsBridge.stopConversation(req.params.conversationId);
+        res.json({ success: ok });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    });
     // ============================================================
     // Health & Info
     // ============================================================
@@ -239,7 +269,7 @@ async function main() {
                     throw new Error("Task timed out after 2 minutes");
                 }
             }
-            catch (err) {
+            catch (err: any) {
                 throw err;
             }
             res.json({
@@ -249,7 +279,7 @@ async function main() {
                 toolResults: result,
             });
         }
-        catch (err) {
+        catch (err: any) {
             console.error("[Chat API] Error:", err);
             res.status(500).json({ error: err.message });
         }
@@ -295,7 +325,7 @@ async function main() {
             const result = await toolRouter.executeTool(toolName, args);
             res.json(result);
         }
-        catch (err) {
+        catch (err: any) {
             res.status(400).json({ success: false, error: err.message });
         }
     });
@@ -331,7 +361,7 @@ async function main() {
             memory.setAgentState(req.params.agentId, tenant_id, key, String(value));
             res.json({ key, value });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(400).json({ error: err.message });
         }
     });
@@ -358,7 +388,7 @@ async function main() {
                 triggers: results,
             });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(400).json({ error: err.message });
         }
     });
@@ -373,7 +403,7 @@ async function main() {
             webhookHandler.addRule(req.body);
             res.status(201).json(req.body);
         }
-        catch (err) {
+        catch (err: any) {
             res.status(400).json({ error: err.message });
         }
     });
@@ -521,7 +551,7 @@ async function main() {
             });
             res.status(201).json(task);
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -568,7 +598,7 @@ async function main() {
             llmGateway.updateConfig(req.body);
             res.json({ status: "updated", config: llmGateway.getConfig() });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -586,7 +616,7 @@ async function main() {
             const result = await agentLoop.sleepAgent(req.params.agentId);
             res.json(result);
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -595,7 +625,7 @@ async function main() {
             const result = await agentLoop.wakeAgent(req.params.agentId);
             res.json(result);
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -612,7 +642,7 @@ async function main() {
                 res.json({ connected: false, queues: {} });
             }
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -639,7 +669,7 @@ async function main() {
             const pushed = await redisQueue.pushTask(task);
             res.json({ success: pushed, task });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -676,7 +706,7 @@ async function main() {
                 res.status(404).json({ error: result.error });
             }
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -693,7 +723,7 @@ async function main() {
             const conversations = agentLoop.listPersistedConversations(agentId);
             res.json({ agent: agentId, conversations });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -703,7 +733,7 @@ async function main() {
             const all = agentLoop.listPersistedConversations();
             res.json({ conversations: all });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -730,7 +760,7 @@ async function main() {
             });
             res.status(201).json({ success: true, data: delegation });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -744,7 +774,7 @@ async function main() {
             });
             res.json({ success: true, data: delegations });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -756,7 +786,7 @@ async function main() {
             }
             res.json({ success: true, data: delegation });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -772,7 +802,7 @@ async function main() {
             }
             res.json({ success: true, data: delegation });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -807,7 +837,7 @@ async function main() {
             memory.setAgentState(assignee, "erp-core", "pending_tasks", JSON.stringify(tasks));
             res.status(201).json({ status: "created", task });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -835,7 +865,7 @@ async function main() {
             }
             res.json({ tasks: allTasks });
         }
-        catch (err) {
+        catch (err: any) {
             res.status(500).json({ error: err.message });
         }
     });
@@ -853,7 +883,7 @@ async function main() {
             const result = await toolRouter.executeTool(tool, args);
             res.json(result);
         }
-        catch (err) {
+        catch (err: any) {
             res.status(400).json({ error: err.message });
         }
     });
@@ -874,7 +904,7 @@ async function main() {
             const wf = workflowEngine.createWorkflow(req.body);
             res.status(201).json(wf);
         }
-        catch (err) {
+        catch (err: any) {
             res.status(400).json({ error: err.message });
         }
     });
@@ -893,7 +923,7 @@ async function main() {
             const wf = await workflowEngine.startWorkflow(req.params.id);
             res.json(wf);
         }
-        catch (err) {
+        catch (err: any) {
             res.status(400).json({ error: err.message });
         }
     });
