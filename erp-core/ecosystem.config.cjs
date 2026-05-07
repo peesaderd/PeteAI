@@ -64,6 +64,9 @@ module.exports = {
       name: "system-agent",
       cwd: path.join(ERP_ROOT, "packages/system-agent"),
       script: "dist/index.js",
+      error_file: "/dev/null",
+      out_file: "/dev/null",
+      autorestart: false,
       env: {
         PORT: "54520",
         NODE_ENV: "production"
@@ -73,6 +76,9 @@ module.exports = {
       name: "task-manager",
       cwd: path.join(ERP_ROOT, "packages/task-manager"),
       script: "dist/index.js",
+      error_file: "/dev/null",
+      out_file: "/dev/null",
+      autorestart: false,
       env: {
         PORT: "54519",
         NODE_ENV: "production"
@@ -82,6 +88,9 @@ module.exports = {
       name: "ai-docs-updater",
       cwd: path.join(ERP_ROOT, "packages/ai-docs-updater"),
       script: "dist/index.js",
+      error_file: "/dev/null",
+      out_file: "/dev/null",
+      autorestart: false,
       env: {
         AI_DOCS_PORT: "54517",
         SIYUAN_URL: "http://127.0.0.1:54511",
@@ -94,6 +103,9 @@ module.exports = {
       name: "telegram-bot",
       cwd: path.join(ERP_ROOT, "packages/telegram-bot"),
       script: "dist/index.js",
+      error_file: "/dev/null",
+      out_file: "/dev/null",
+      autorestart: false,
       env: {
         TELEGRAM_BOT_TOKEN: "8635403645:AAEY_O9EoaStBI6JI8xi3OW38Tgspf8orBI",
         ORCHESTRATOR_URL: "http://127.0.0.1:54516",
