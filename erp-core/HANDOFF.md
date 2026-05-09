@@ -1,7 +1,7 @@
-# Handoff: ERP Core v0.2.0
+# Handoff: ERP Core v0.3.0
 
 > สรุปสถานะปัจจุบันสำหรับ AI Agent ที่จะทำงานต่อ
-> อัปเดตล่าสุด: 2026-05-06
+> อัปเดตล่าสุด: 2026-05-09
 
 ---
 
@@ -15,9 +15,13 @@
 - Browser Smart Sleep — auto-sleep after 3 min idle
 - Tests — 27 unit tests + 2 e2e tests ผ่านทั้งหมด
 - GitHub Actions CI — test.yml workflow พร้อม
-- GitHub Issue Templates — bug_report, test_failure, qa_checklist
-- .openhands/microagents/repo.md — project knowledge base (429 lines)
-- AGENTS.md — project rules for AI agents (137 lines)
+- .openhands/microagents/repo.md — project knowledge base (อัปเดตล่าสุด)
+- AGENTS.md — project rules for AI agents
+- **OpenHands Bridge** — REST API + Browser fallback สำหรับส่ง task ไป OpenHands
+- **Single Instance Guard** — Lock file ป้องกันการรันซ้อน
+- **Heartbeat + Health API** — ตรวจสอบ health ของ orchestrator
+- **DeepSeek Reasoning Support** — รองรับ reasoningContent ใน LLM response
+- **"Max 2000" Fix** — ตั้ง max_iterations=10000 ใน settings.json ของ OpenHands container
 
 ### ⏳ กำลังดำเนินการ / ค้างอยู่
 - DeepSeek API Key ยังไม่ได้ set ใน GitHub Secrets
@@ -26,6 +30,8 @@
 - SSL certificate — ต้องรัน certbot สำหรับ openhands.m2igen.com
 - NGINX systemd service failed (port conflicts)
 - Server CPU/RAM สูงจาก OpenHands container
+- Oracle Cloud Free Tier signup — credit card ผ่านแล้วแต่ signup ไม่ผ่าน (ต้องลองใหม่)
+- SiYuan "Brain" search — API endpoint ยังหาไม่เจอ (/api/search คืน 404)
 
 ### 📌 สิ่งที่ต้องทำต่อ (ลำดับความสำคัญ)
 1. Set DEEPSEEK_API_KEY ใน GitHub Secrets
@@ -33,6 +39,9 @@
 3. ตั้งค่า DNS + SSL สำหรับ openhands.m2igen.com
 4. Reload NGINX ให้ HTTPS ทำงาน
 5. จัดการ port conflicts ของ NGINX
+6. Oracle Cloud VM — ลอง signup อีกครั้ง หรือใช้ provider อื่น (Hetzner, RackNerd, Contabo)
+7. ติดตั้ง Docker + Ollama + local LLM บน VM ใหม่
+8. Clone ข้อมูลจาก server ปัจจุบันไป VM ใหม่
 
 ---
 
@@ -40,7 +49,8 @@
 
 | Branch | คำอธิบาย | สถานะ |
 |--------|---------|-------|
-| erp-core | ERP Core development (active) | latest: 0e6139f |
+| unified-agent-v3 | **Active** — Unified agent + OpenHands Bridge | latest: 9e0ac49 |
+| erp-core | ERP Core development | merged |
 | etsy-workflow | Etsy integration | merged -> erp-core |
 | master | Production | original root |
 | agent-loop-improve | Agent Loop improvements | pushed |
@@ -58,9 +68,9 @@ ERP Core API (54510) <-> AI Orchestrator (54516) <-> LLM Gateway
                     |         |         |
               Task Queue   Browser   Etsy API
               (SQLite)    (Playwright) (v3 OAuth)
-                    |         |
-              Vision Analysis  |
-              (Gemini/GPT-4V)  |
+                    |         |         |
+              Vision Analysis  |   OpenHands Bridge
+              (Gemini/GPT-4V)  |   (REST + Browser)
                          Etsy Browser Workflow
 ```
 
@@ -72,6 +82,8 @@ ERP Core API (54510) <-> AI Orchestrator (54516) <-> LLM Gateway
 - packages/ai-orchestrator/src/browser-use.ts — Browser automation
 - packages/ai-orchestrator/src/etsy-api-client.ts — Etsy API
 - packages/ai-orchestrator/src/vision-analysis.ts — Vision
+- packages/ai-orchestrator/src/openhands-bridge.ts — OpenHands Bridge
+- packages/ai-orchestrator/src/index.ts — Entry + Single Instance Guard + Health API
 
 ---
 
@@ -92,24 +104,31 @@ ERP Core API (54510) <-> AI Orchestrator (54516) <-> LLM Gateway
 | Knowledge Base | 54512 |
 | Web Dashboard (dev) | 3200 |
 | Task Manager | 8081 |
-| OpenHands API | 3002 |
-| OpenHands UI | 52531 |
+| SiYuan | 54511 |
+| OpenHands UI | 3002 |
 
 ---
 
 ## Server Infrastructure
 
-- Host: 89.167.82.205 (n8n-server)
-- Specs: 8 vCPU, 15GB RAM, 150GB disk
-- OpenHands: v0.59.0 (container)
-- Runtimes: 49af (ERP MCP), 2e3a (Test & QA)
-- SiYuan: port 54511
+- **Main Host**: 89.167.82.205 (n8n-server)
+- **Specs**: 8 vCPU, 15GB RAM, 150GB disk
+- **OpenHands**: v0.50.0 (container, ghcr.io/all-hands-ai/openhands:0.50)
+- **OpenHands UI**: http://178.105.75.67:3002
+- **Sandbox Runtime**: 178.105.75.67 (action_execution_server)
+- **SiYuan**: port 54511 (Docker container: erp-siyuan)
+- **PM2**: ai-orchestrator (running on main host)
+
+### OpenHands Config
+- settings.json: \`max_iterations: 10000\` (fixed)
+- Session data: \`/home/openhands/.openhands/sessions/\` (persistent bind mount)
+- 4 conversations stored: 18acd5c5, 33feae7d, c3b0869b, d6c010a7
 
 ---
 
 ## Testing
 
-```bash
+\`\`\`bash
 # Unit tests
 npm test                          # 27 tests passed
 
@@ -118,15 +137,18 @@ npm run test:e2e                  # 2 tests passed
 
 # Single file
 npx vitest run packages/ai-orchestrator/src/etsy-api-client.test.ts
-```
+\`\`\`
 
 ---
 
-## หมายเหตุ
+## หมายเหตุสำคัญ
 
 - Agent Loop v2 ใช้ event-driven design — ไม่มี setInterval polling
 - Browser Use มี Smart Sleep — ต้อง wake ก่อนใช้งานทุกครั้ง
 - DeepSeek ไม่รองรับ image_url — ใช้ Gemini สำหรับ vision tasks
 - Etsy OAuth token auto-refresh — ใช้ ensureValidToken() ก่อนเรียก API
+- OpenHands Bridge ส่ง task ผ่าน REST API ก่อน ถ้าไม่ได้ใช้ browser fallback
+- **"Max 2000" error** แก้โดยตั้ง max_iterations=10000 ใน settings.json — ไม่ต้อง restart container
 - .openhands/microagents/repo.md ถูกโหลดอัตโนมัติโดย OpenHands
 - AGENTS.md ถูกโหลดอัตโนมัติโดย OpenHands
+- **Oracle Cloud signup** ลองใหม่หรือใช้ provider อื่น (Hetzner ถูกและดี)
