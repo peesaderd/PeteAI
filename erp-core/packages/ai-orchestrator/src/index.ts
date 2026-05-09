@@ -5,6 +5,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import fs from "fs";
 import { MemoryStore } from "./memory.js";
 import { ChatStore, ChatMessage } from "./chat-store.js";
 import { ToolRouter } from "./tool-router.js";
@@ -20,14 +21,78 @@ import { BrowserWatchdog } from "./browser-watchdog.js";
 // ─── Architecture v2: PeteAI Autonomous ──────────────────────
 import { LLMGateway, LLMMessage } from "./llm-gateway.js";
 import { TaskQueue } from "./task-queue.js";
+import { TaskDispatcher } from "./task-dispatcher.js";
 import { AgentLoopV2 } from "./agent-loop-v2.js";
 import { OpenHandsBridge } from "./openhands-bridge.js";
 import { EtsyPipeline } from "./etsy-pipeline.js";
+// ─── Single Instance Guard ──────────────────────────────────
+const LOCK_FILE = "/tmp/ai-orchestrator.lock";
+function checkSingleInstance(): void {
+  if (fs.existsSync(LOCK_FILE)) {
+    const existingPid = fs.readFileSync(LOCK_FILE, "utf8").trim();
+    try {
+      process.kill(parseInt(existingPid), 0);
+      console.log(`[Guard] Already running with PID ${existingPid}. Exiting.`);
+      process.exit(0);
+    } catch {
+      console.log(`[Guard] Stale lock file (PID ${existingPid} dead). Taking over.`);
+    }
+  }
+  fs.writeFileSync(LOCK_FILE, String(process.pid));
+  console.log(`[Guard] Lock acquired (PID ${process.pid})`);
+}
+function releaseLock(): void {
+  try {
+    if (fs.existsSync(LOCK_FILE) && fs.readFileSync(LOCK_FILE, "utf8").trim() === String(process.pid)) {
+      fs.unlinkSync(LOCK_FILE);
+      console.log("[Guard] Lock released");
+    }
+  } catch { /* ignore */ }
+}
+process.on("exit", releaseLock);
+process.on("SIGTERM", () => { releaseLock(); process.exit(0); });
+process.on("SIGINT", () => { releaseLock(); process.exit(0); });
+process.on("SIGHUP", () => { releaseLock(); process.exit(0); });
+checkSingleInstance();
+
+// ─── Heartbeat Monitor ──────────────────────────────────────
+class HeartbeatMonitor {
+  private interval: NodeJS.Timeout | null = null;
+  private agentLoopV2Ref: any = null;
+  private startTime = Date.now();
+  setAgentLoopV2(ref: any) { this.agentLoopV2Ref = ref; }
+  start(intervalMs = 30000): void {
+    if (this.interval) return;
+    console.log(`[Heartbeat] Started (every ${intervalMs}ms)`);
+    this.interval = setInterval(() => {
+      const mem = process.memoryUsage();
+      const agentRunning = this.agentLoopV2Ref?.getState().status === "running";
+      console.log(`[Heartbeat] ${JSON.stringify({
+        timestamp: new Date().toISOString(),
+        pid: process.pid,
+        uptimeSec: Math.floor((Date.now() - this.startTime) / 1000),
+        memory: Math.round(mem.rss / 1024 / 1024) + "MB",
+        agentLoopRunning: agentRunning,
+      })}`);
+    }, intervalMs);
+  }
+  stop(): void { if (this.interval) { clearInterval(this.interval); this.interval = null; } }
+  getStatus() {
+    return {
+      pid: process.pid,
+      uptimeSec: Math.floor((Date.now() - this.startTime) / 1000),
+      agentLoopRunning: this.agentLoopV2Ref?.getState().status === "running",
+    };
+  }
+}
+const heartbeatMonitor = new HeartbeatMonitor();
+
 const PORT = parseInt(process.env.ORCHESTRATOR_PORT || "54516", 10);
 async function main() {
     const app = express();
     app.use(cors());
     app.use(express.json({ limit: "10mb" }));
+    app.use(express.static(import.meta.dirname + "/../public"));
     // Initialize core services
     const memory = new MemoryStore();
     const chatStore = new ChatStore();
@@ -75,6 +140,7 @@ async function main() {
     }
     // Task Queue — SQLite-based persistent queue (แทน Redis)
     const taskQueue = new TaskQueue();
+    const taskDispatcher = new TaskDispatcher(taskQueue, llmGateway, toolRouter, memory);
     console.log("[Server] Task Queue ready (SQLite)");
     // Agent Loop v2 — Controllable, task-based autonomous agent
     // --- OpenHands Bridge (top-level singleton) ---
@@ -86,6 +152,7 @@ async function main() {
   }
 
     const agentLoopV2 = new AgentLoopV2(llmGateway, taskQueue, toolRouter, memory, chatStore, browserUse, undefined, undefined, openhandsBridge);
+    heartbeatMonitor.setAgentLoopV2(agentLoopV2);
     // Event callbacks
     agentLoopV2.onTaskStart = (task) => {
         console.log(`[AgentLoopV2] Task started: ${task.id} (${task.title})`);
@@ -787,6 +854,74 @@ async function main() {
         }
     });
     // ============================================================
+    // Task Board API (HITL + Task Dispatcher)
+    // ============================================================
+    app.get("/api/task-board/pending", (_req, res) => {
+        try {
+            const tasks = taskDispatcher.getPendingApproval();
+            res.json({ tasks });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.get("/api/task-board/tasks", (req, res) => {
+        try {
+            const status = req.query.status as string | undefined;
+            const agent = req.query.agent as string | undefined;
+            const tasks = taskDispatcher.listTasks({ status: status as any, agent });
+            res.json({ tasks });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.get("/api/task-board/tasks/:id", (req, res) => {
+        try {
+            const task = taskDispatcher.getTask(req.params.id);
+            if (!task) return res.status(404).json({ error: "Task not found" });
+            res.json({ task });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.post("/api/task-board/approve/:id", (req, res) => {
+        try {
+            const { approvedBy } = req.body;
+            if (!approvedBy) return res.status(400).json({ error: "approvedBy required" });
+            const task = taskDispatcher.approveTask(req.params.id, approvedBy);
+            if (!task) return res.status(404).json({ error: "Task not found or not pending" });
+            res.json({ status: "approved", task });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.post("/api/task-board/reject/:id", (req, res) => {
+        try {
+            const { rejectedBy, reason } = req.body;
+            if (!rejectedBy || !reason) return res.status(400).json({ error: "rejectedBy and reason required" });
+            const task = taskDispatcher.rejectTask(req.params.id, rejectedBy, reason);
+            if (!task) return res.status(404).json({ error: "Task not found or not pending" });
+            res.json({ status: "rejected", task });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.post("/api/task-board/dispatch", async (req, res) => {
+        try {
+            const { text, source, sessionId } = req.body;
+            if (!text) return res.status(400).json({ error: "text required" });
+            const task = await taskDispatcher.dispatchFromText(text, source || "dashboard", sessionId);
+            res.status(201).json({ status: "dispatched", task });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ============================================================
     // Task Queue API (for creating tasks consumed by Agent Loop)
     // ============================================================
     app.post("/api/tasks", (req, res) => {
@@ -919,6 +1054,18 @@ async function main() {
             return res.status(404).json({ error: "Workflow or step not found" });
         res.json({ status: "completed" });
     });
+    // ─── Health Endpoint ────────────────────────────────────────
+    app.get("/health", (_req, res) => {
+        res.json({
+            status: "ok",
+            pid: process.pid,
+            uptimeSec: Math.floor(process.uptime()), 
+            agentLoopRunning: agentLoopV2.getState().status === "running",
+            memory: Math.round(process.memoryUsage().rss / 1024 / 1024) + "MB",
+            timestamp: new Date().toISOString(),
+        });
+    });
+
     // ============================================================
     // Start Server
     // ============================================================
@@ -1090,6 +1237,7 @@ addMsg('assistant','👋 สวัสดีครับ! ผมคือ **ERP A
         console.log(`[AI Orchestrator] ERP MCP: ${process.env.ERP_MCP_URL || "http://localhost:54510/api/mcp"}`);
         console.log(`[AI Orchestrator] Agency API: ${process.env.AGENCY_API_URL || "http://localhost:54515"}`);
         console.log(`[AI Orchestrator] Agent Loop: ${agentLoop.getStatus().running ? "RUNNING" : "STOPPED"}`);
+        heartbeatMonitor.start();
     });
 }
 main().catch(console.error);

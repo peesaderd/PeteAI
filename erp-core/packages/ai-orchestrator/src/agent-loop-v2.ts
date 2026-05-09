@@ -68,6 +68,9 @@ export class AgentLoopV2 {
   public onTaskComplete: ((task: Task) => void) | null = null;
   public onTaskFailed: ((task: Task, error: string) => void) | null = null;
   public onStatusChange: ((status: AgentStatus) => void) | null = null;
+  public onTaskPendingApproval: ((task: Task) => void) | null = null;
+  public onTaskApproved: ((task: Task) => void) | null = null;
+  public onTaskRejected: ((task: Task, reason: string) => void) | null = null;
 
   constructor(
     llm: LLMGateway,
@@ -137,6 +140,22 @@ export class AgentLoopV2 {
     console.log("[AgentLoopV2] Resumed");
     this.onStatusChange?.("running");
     this.scheduleNext();
+  }
+
+  getStatus(): any {
+    return {
+      running: this.status === "running",
+      tickCount: this.processedCount + this.failedCount,
+      eventDriven: true,
+      maxConcurrentAgents: 2,
+      llmConfigured: true,
+      llmModel: "deepseek-chat",
+      agents: [
+        { name: "erp", role: "ERP Assistant", activeTasks: 0, maxConcurrent: 5, sleeping: this.status !== "running" },
+        { name: "production", role: "Execution & Delivery", activeTasks: 0, maxConcurrent: 3, sleeping: this.status !== "running" },
+      ],
+      activeTasks: [],
+    };
   }
 
   getState(): AgentState {
@@ -1051,6 +1070,63 @@ export class AgentLoopV2 {
     });
 
     return task;
+  }
+
+  // ─── Human-in-the-Loop ───────────────────────────────────
+
+  /** ขออนุมัติจากมนุษย์สำหรับ task ที่ต้องการ approval */
+  async requestApproval(taskId: string, reason: string): Promise<Task | null> {
+    const task = this.queue.get(taskId);
+    if (!task) return null;
+
+    const token = `apr_${uuidv4().slice(0, 8)}`;
+    this.queue.updateStatus(taskId, "pending_approval", {
+      approvalToken: token,
+      approvalReason: reason,
+    });
+
+    const updated = this.queue.get(taskId);
+    this.onTaskPendingApproval?.(updated!);
+    return updated;
+  }
+
+  /** อนุมัติ task */
+  async approveTask(taskId: string, approvedBy: string): Promise<Task | null> {
+    const task = this.queue.get(taskId);
+    if (!task || task.status !== "pending_approval") return null;
+
+    this.queue.updateStatus(taskId, "queued", {
+      approvedBy,
+      approvedAt: new Date().toISOString(),
+    });
+
+    const updated = this.queue.get(taskId);
+    this.onTaskApproved?.(updated!);
+    return updated;
+  }
+
+  /** ไม่อนุมัติ task */
+  async rejectTask(taskId: string, reason: string): Promise<Task | null> {
+    const task = this.queue.get(taskId);
+    if (!task || task.status !== "pending_approval") return null;
+
+    this.queue.updateStatus(taskId, "cancelled", {
+      rejectionReason: reason,
+    });
+
+    const updated = this.queue.get(taskId);
+    this.onTaskRejected?.(updated!, reason);
+    return updated;
+  }
+
+  /** ดึง tasks ที่รออนุมัติ */
+  getPendingApprovals(): Task[] {
+    return this.queue.list({ status: "pending_approval", limit: 100 });
+  }
+
+  /** ดึง task โดย id */
+  getTask(taskId: string): Task | null {
+    return this.queue.get(taskId);
   }
 
   /** ดึง task history */

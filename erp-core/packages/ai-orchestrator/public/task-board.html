@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Board — AI Orchestrator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 20px; }
+  h1 { font-size: 1.5rem; margin-bottom: 20px; color: #38bdf8; }
+  .container { max-width: 1200px; margin: 0 auto; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tab { padding: 8px 16px; border-radius: 6px; cursor: pointer; background: #1e293b; border: 1px solid #334155; color: #94a3b8; font-size: 0.875rem; }
+  .tab.active { background: #0ea5e9; color: #fff; border-color: #0ea5e9; }
+  .tab:hover { background: #334155; }
+  .tab.active:hover { background: #0284c7; }
+  table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 8px; overflow: hidden; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #334155; font-size: 0.8125rem; }
+  th { background: #0f172a; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  tr:hover { background: #334155; }
+  .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .status-queued { background: #1e3a5f; color: #60a5fa; }
+  .status-running { background: #1e3a5f; color: #fbbf24; }
+  .status-done { background: #14532d; color: #4ade80; }
+  .status-failed { background: #450a0a; color: #f87171; }
+  .status-pending_approval { background: #713f12; color: #fbbf24; }
+  .status-cancelled { background: #1e293b; color: #64748b; }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 0.6875rem; background: #334155; color: #94a3b8; }
+  .badge-rd { background: #1e3a5f; color: #60a5fa; }
+  .badge-production { background: #713f12; color: #fbbf24; }
+  .badge-brainstorm { background: #14532d; color: #4ade80; }
+  .badge-design { background: #4c1d95; color: #a78bfa; }
+  .badge-marketing { background: #831843; color: #f472b6; }
+  .actions { display: flex; gap: 4px; }
+  .btn { padding: 4px 10px; border-radius: 4px; border: none; cursor: pointer; font-size: 0.75rem; font-weight: 600; }
+  .btn-approve { background: #166534; color: #4ade80; }
+  .btn-approve:hover { background: #15803d; }
+  .btn-reject { background: #7f1d1d; color: #fca5a5; }
+  .btn-reject:hover { background: #991b1b; }
+  .btn-dispatch { background: #0ea5e9; color: #fff; padding: 8px 16px; font-size: 0.875rem; }
+  .btn-dispatch:hover { background: #0284c7; }
+  .dispatch-box { background: #1e293b; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  .dispatch-box textarea { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 0.875rem; resize: vertical; min-height: 60px; margin-bottom: 8px; }
+  .dispatch-box textarea:focus { outline: none; border-color: #0ea5e9; }
+  .dispatch-row { display: flex; gap: 8px; align-items: center; }
+  .dispatch-row input { flex: 1; padding: 8px 10px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 0.875rem; }
+  .dispatch-row input:focus { outline: none; border-color: #0ea5e9; }
+  .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: #fff; font-size: 0.875rem; z-index: 1000; opacity: 0; transition: opacity 0.3s; }
+  .toast.show { opacity: 1; }
+  .toast-success { background: #166534; }
+  .toast-error { background: #7f1d1d; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 999; }
+  .modal { background: #1e293b; border-radius: 12px; padding: 24px; width: 90%; max-width: 500px; }
+  .modal h3 { margin-bottom: 12px; color: #f1f5f9; }
+  .modal input, .modal textarea { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; margin-bottom: 8px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+  .refresh-btn { background: none; border: 1px solid #334155; color: #94a3b8; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8125rem; }
+  .refresh-btn:hover { background: #334155; }
+
+  .board { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 16px; min-height: 60vh; }
+  .column { min-width: 300px; max-width: 340px; flex: 1; }
+  .column-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px 8px 0 0; font-size: 0.8125rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .column-header .count { background: rgba(255,255,255,0.1); padding: 1px 8px; border-radius: 10px; font-size: 0.75rem; }
+  .column-queued .column-header { background: #1e3a5f; color: #60a5fa; }
+  .column-pending_approval .column-header { background: #713f12; color: #fbbf24; }
+  .column-running .column-header { background: #1e3a5f; color: #fbbf24; }
+  .column-done .column-header { background: #14532d; color: #4ade80; }
+  .column-failed .column-header { background: #450a0a; color: #f87171; }
+  .column-cancelled .column-header { background: #1e293b; color: #64748b; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+  .card:hover { border-color: #0ea5e9; box-shadow: 0 0 0 1px #0ea5e933; }
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .card-title { font-size: 0.875rem; font-weight: 500; color: #f1f5f9; line-height: 1.3; }
+  .card-meta { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+  .card-id { font-family: monospace; font-size: 0.6875rem; color: #64748b; }
+  .card-priority { font-size: 0.6875rem; color: #64748b; }
+  .card-detail { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #334155; font-size: 0.8125rem; color: #94a3b8; }
+  .card.expanded .card-detail { display: block; }
+  .card-detail-row { display: flex; justify-content: space-between; padding: 3px 0; }
+  .card-detail-label { color: #64748b; }
+  .card-detail-value { color: #e2e8f0; text-align: right; max-width: 60%; word-break: break-word; }
+  .card-actions { margin-top: 10px; display: flex; gap: 6px; }
+  .expand-icon { color: #64748b; font-size: 0.75rem; transition: transform 0.15s; }
+  .card.expanded .expand-icon { transform: rotate(180deg); }
+  .empty-col { padding: 40px 12px; text-align: center; color: #475569; font-size: 0.8125rem; }
+  .detail-section { margin-top: 8px; }
+  .detail-section-title { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 4px; }
+  .detail-json { background: #0f172a; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 0.6875rem; white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; color: #94a3b8; }
+
+  .board { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 16px; min-height: 60vh; }
+  .column { min-width: 300px; max-width: 340px; flex: 1; }
+  .column-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px 8px 0 0; font-size: 0.8125rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .column-header .count { background: rgba(255,255,255,0.1); padding: 1px 8px; border-radius: 10px; font-size: 0.75rem; }
+  .column-queued .column-header { background: #1e3a5f; color: #60a5fa; }
+  .column-pending_approval .column-header { background: #713f12; color: #fbbf24; }
+  .column-running .column-header { background: #1e3a5f; color: #fbbf24; }
+  .column-done .column-header { background: #14532d; color: #4ade80; }
+  .column-failed .column-header { background: #450a0a; color: #f87171; }
+  .column-cancelled .column-header { background: #1e293b; color: #64748b; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+  .card:hover { border-color: #0ea5e9; box-shadow: 0 0 0 1px #0ea5e933; }
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .card-title { font-size: 0.875rem; font-weight: 500; color: #f1f5f9; line-height: 1.3; }
+  .card-meta { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+  .card-id { font-family: monospace; font-size: 0.6875rem; color: #64748b; }
+  .card-priority { font-size: 0.6875rem; color: #64748b; }
+  .card-detail { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #334155; font-size: 0.8125rem; color: #94a3b8; }
+  .card.expanded .card-detail { display: block; }
+  .card-detail-row { display: flex; justify-content: space-between; padding: 3px 0; }
+  .card-detail-label { color: #64748b; }
+  .card-detail-value { color: #e2e8f0; text-align: right; max-width: 60%; word-break: break-word; }
+  .card-actions { margin-top: 10px; display: flex; gap: 6px; }
+  .expand-icon { color: #64748b; font-size: 0.75rem; transition: transform 0.15s; }
+  .card.expanded .expand-icon { transform: rotate(180deg); }
+  .empty-col { padding: 40px 12px; text-align: center; color: #475569; font-size: 0.8125rem; }
+  .detail-section { margin-top: 8px; }
+  .detail-section-title { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 4px; }
+  .detail-json { background: #0f172a; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 0.6875rem; white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; color: #94a3b8; }
+
+  .popup-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .popup-overlay.show { display: flex; }
+  .popup { background: #1e293b; border: 1px solid #334155; border-radius: 12px; width: 90%; max-width: 560px; max-height: 80vh; overflow-y: auto; padding: 24px; }
+  .popup-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+  .popup-title { font-size: 1.1rem; font-weight: 600; color: #f1f5f9; }
+  .popup-close { background: none; border: none; color: #64748b; font-size: 1.5rem; cursor: pointer; padding: 0 4px; }
+  .popup-close:hover { color: #f1f5f9; }
+  .popup-body { font-size: 0.8125rem; color: #94a3b8; }
+  .popup-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #0f172a; }
+  .popup-label { color: #64748b; font-weight: 500; }
+  .popup-value { color: #e2e8f0; text-align: right; max-width: 60%; word-break: break-word; }
+  .popup-section { margin-top: 12px; }
+  .popup-section-title { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 6px; }
+  .popup-json { background: #0f172a; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.6875rem; white-space: pre-wrap; word-break: break-all; max-height: 150px; overflow-y: auto; color: #94a3b8; }
+  .popup-actions { margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; }
+
+</style>
+</head>
+<body>
+<div class="container">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+    <h1>Task Board</h1>
+    <button class="refresh-btn" onclick="fetchTasks()">Refresh</button>
+  </div>
+
+  <div class="dispatch-box">
+    <textarea id="dispatchText" placeholder="Enter task description... e.g. 'Investigate login bug' or 'Deploy to production'"></textarea>
+    <div class="dispatch-row">
+      <input id="dispatchSource" placeholder="Source (e.g. dashboard)" value="dashboard">
+      <button class="btn btn-dispatch" onclick="dispatchTask()">Dispatch</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('all')" id="tab-all">All</div>
+    <div class="tab" onclick="switchTab('pending_approval')" id="tab-pending_approval">Pending Approval</div>
+    <div class="tab" onclick="switchTab('running')" id="tab-running">Running</div>
+    <div class="tab" onclick="switchTab('done')" id="tab-done">Done</div>
+  </div>
+
+  <div class="board" id="board">
+    
+    
+  </div>
+</div>
+
+<div id="rejectModal" class="modal-overlay" style="display:none;">
+  <div class="modal">
+    <h3>Reject Task</h3>
+    <input id="rejectBy" placeholder="Your name">
+    <textarea id="rejectReason" placeholder="Reason for rejection" style="min-height:60px;"></textarea>
+    <div class="modal-actions">
+      <button class="btn" style="background:#334155;color:#94a3b8;" onclick="closeRejectModal()">Cancel</button>
+      <button class="btn btn-reject" onclick="confirmReject()">Reject</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+let currentTab = "all";
+let rejectTaskId = null;
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
+
+function showToast(msg, type = "success") {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast toast-" + type + " show";
+  setTimeout(() => t.classList.remove("show"), 3000);
+}
+
+const STATUS_ORDER = ["pending_approval", "queued", "running", "done", "failed", "cancelled"];
+const STATUS_LABELS = { pending_approval: "Pending Approval", queued: "Queued", running: "Running", done: "Done", failed: "Failed", cancelled: "Cancelled" };
+
+function formatDate(iso) {
+  if (!iso) return "-";
+  return new Date(iso).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", hour12: false });
+}
+
+function renderCard(t) {
+  const agent = t.input?.assignedAgent || "system";
+  const badgeClass = "badge-" + agent;
+  let actionsHtml = "";
+  if (t.status === "pending_approval") {
+    actionsHtml = '<div class="card-actions"><button class="btn btn-approve" onclick="event.stopPropagation();approveTask(\'' + t.id + '\')">Approve</button><button class="btn btn-reject" onclick="event.stopPropagation();openReject(\'' + t.id + '\')">Reject</button></div>';
+  }
+  return '<div class="card" onclick="openTaskPopup(\'' + t.id + '\')"><div class="card-header"><div class="card-title">' + (t.title || "(no title)") + '</div></div><div class="card-meta"><span class="card-id">' + t.id.slice(-12) + '</span><span class="badge ' + badgeClass + '">' + agent + '</span><span class="card-priority">P' + (t.priority || "-") + '</span></div>' + actionsHtml + '</div>';
+}
+
+
+function openTaskPopup(id) {
+  const data = window._allTasks || [];
+  const t = data.find(x => x.id === id);
+  if (!t) return;
+  document.getElementById("popupTitle").textContent = t.title || "(no title)";
+  const agent = t.input?.assignedAgent || "system";
+  const badgeClass = "badge-" + agent;
+  const inputJson = JSON.stringify(t.input || {}, null, 2);
+  const outputJson = t.output ? JSON.stringify(t.output, null, 2) : null;
+  const errorStr = t.error || null;
+  let html = '<div class="popup-row"><span class="popup-label">ID</span><span class="popup-value" style="font-family:monospace;font-size:0.75rem;">' + t.id + '</span></div>';
+  html += '<div class="popup-row"><span class="popup-label">Agent</span><span class="popup-value"><span class="badge ' + badgeClass + '">' + agent + '</span></span></div>';
+  html += '<div class="popup-row"><span class="popup-label">Status</span><span class="popup-value"><span class="status status-' + t.status + '">' + t.status + '</span></span></div>';
+  html += '<div class="popup-row"><span class="popup-label">Priority</span><span class="popup-value">P' + (t.priority || "-") + '</span></div>';
+  html += '<div class="popup-row"><span class="popup-label">Created</span><span class="popup-value">' + formatDate(t.createdAt) + '</span></div>';
+  if (t.startedAt) html += '<div class="popup-row"><span class="popup-label">Started</span><span class="popup-value">' + formatDate(t.startedAt) + '</span></div>';
+  if (t.completedAt) html += '<div class="popup-row"><span class="popup-label">Completed</span><span class="popup-value">' + formatDate(t.completedAt) + '</span></div>';
+  if (t.approvedBy) html += '<div class="popup-row"><span class="popup-label">Approved by</span><span class="popup-value">' + t.approvedBy + '</span></div>';
+  if (t.approvedAt) html += '<div class="popup-row"><span class="popup-label">Approved at</span><span class="popup-value">' + formatDate(t.approvedAt) + '</span></div>';
+  if (t.rejectionReason) html += '<div class="popup-row"><span class="popup-label">Rejection</span><span class="popup-value">' + t.rejectionReason + '</span></div>';
+  html += '<div class="popup-section"><div class="popup-section-title">Input</div><div class="popup-json">' + inputJson + '</div></div>';
+  if (outputJson) html += '<div class="popup-section"><div class="popup-section-title">Output</div><div class="popup-json">' + outputJson + '</div></div>';
+  if (errorStr) html += '<div class="popup-section"><div class="popup-section-title" style="color:#f87171;">Error</div><div class="popup-json" style="color:#f87171;">' + errorStr + '</div></div>';
+  document.getElementById("popupBody").innerHTML = html;
+  let actionsHtml = '';
+  if (t.status === "pending_approval") {
+    actionsHtml = '<button class="btn btn-approve" onclick="event.stopPropagation();approveTask(\'' + t.id + '\');closeTaskPopup()">Approve</button><button class="btn btn-reject" onclick="event.stopPropagation();openReject(\'' + t.id + '\');closeTaskPopup()">Reject</button>';
+  }
+  document.getElementById("popupActions").innerHTML = actionsHtml;
+  document.getElementById("taskPopup").classList.add("show");
+}
+
+function closeTaskPopup() {
+  document.getElementById("taskPopup").classList.remove("show");
+}
+
+document.addEventListener('click', function(e) {
+  const popup = document.getElementById('taskPopup');
+  if (popup.classList.contains('show') && e.target === popup) closeTaskPopup();
+});
+
+async function fetchTasks() {
+  const board = document.getElementById("board");
+  board.innerHTML = '<div style="color:#64748b;padding:40px;text-align:center;width:100%;">Loading...</div>';
+  try {
+    let url = "/api/task-board/tasks";
+    if (currentTab !== "all") url += "?status=" + currentTab;
+    const data = await api(url);
+    const tasks = data.tasks || []; window._allTasks = tasks;
+    const groups = {};
+    for (const s of STATUS_ORDER) groups[s] = [];
+    for (const t of tasks) { if (groups[t.status]) groups[t.status].push(t); else groups[t.status] = [t]; }
+    let html = "";
+    for (const s of STATUS_ORDER) {
+      const list = groups[s] || [];
+      if (currentTab !== "all" && currentTab !== s) continue;
+      if (list.length === 0 && currentTab === "all") continue;
+      html += '<div class="column column-' + s + '"><div class="column-header">' + (STATUS_LABELS[s] || s) + ' <span class="count">' + list.length + '</span></div>';
+      if (list.length === 0) { html += '<div class="empty-col">No tasks</div>'; }
+      else { html += list.map(renderCard).join(""); }
+      html += '</div>';
+    }
+    board.innerHTML = html || '<div style="color:#64748b;padding:40px;text-align:center;width:100%;">No tasks found</div>';
+  } catch (err) { board.innerHTML = '<div style="color:#f87171;padding:40px;text-align:center;width:100%;">Error: ' + err.message + '</div>'; }
+}
+
+
+
+async function dispatchTask() {
+  const text = document.getElementById("dispatchText").value.trim();
+  if (!text) { showToast("Please enter task description", "error"); return; }
+  const source = document.getElementById("dispatchSource").value.trim() || "dashboard";
+  try {
+    const data = await api("/api/task-board/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ text, source }),
+    });
+    showToast("Dispatched to " + (data.task?.input?.assignedAgent || "agent"));
+    document.getElementById("dispatchText").value = "";
+    fetchTasks();
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function approveTask(id) {
+  try {
+    await api("/api/task-board/approve/" + id, {
+      method: "POST",
+      body: JSON.stringify({ approvedBy: "dashboard" }),
+    });
+    showToast("Task approved");
+    fetchTasks();
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+function openReject(id) {
+  rejectTaskId = id;
+  document.getElementById("rejectModal").style.display = "flex";
+  document.getElementById("rejectBy").value = "";
+  document.getElementById("rejectReason").value = "";
+}
+
+function closeRejectModal() {
+  document.getElementById("rejectModal").style.display = "none";
+  rejectTaskId = null;
+}
+
+async function confirmReject() {
+  const rejectedBy = document.getElementById("rejectBy").value.trim();
+  const reason = document.getElementById("rejectReason").value.trim();
+  if (!rejectedBy || !reason) { showToast("Please fill all fields", "error"); return; }
+  try {
+    await api("/api/task-board/reject/" + rejectTaskId, {
+      method: "POST",
+      body: JSON.stringify({ rejectedBy, reason }),
+    });
+    showToast("Task rejected");
+    closeRejectModal();
+    fetchTasks();
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.getElementById("tab-" + tab).classList.add("active");
+  fetchTasks();
+}
+
+fetchTasks();
+setInterval(fetchTasks, 10000);
+</script>
+
+<div id="taskPopup" class="popup-overlay">
+  <div class="popup">
+    <div class="popup-header">
+      <div class="popup-title" id="popupTitle"></div>
+      <button class="popup-close" onclick="closeTaskPopup()">&times;</button>
+    </div>
+    <div class="popup-body" id="popupBody"></div>
+    <div class="popup-actions" id="popupActions"></div>
+  </div>
+</div>
+
+</body>
+</html>

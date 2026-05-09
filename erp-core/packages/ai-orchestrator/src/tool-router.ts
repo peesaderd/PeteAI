@@ -1343,7 +1343,7 @@ export class ToolRouter {
         const cacheKey = "siyuan_get_doc:" + id;
         const cached = this.siyuanCache.get(cacheKey);
         if (cached) return { success: true, data: cached.data, fromCache: true };
-        const siyuanUrl = process.env.SIYUAN_URL || "http://siyuan:54511";
+        const siyuanUrl = process.env.SIYUAN_URL || "http://localhost:54511";
         const siyuanToken = process.env.SIYUAN_TOKEN || "";
         const res = await fetch(`${siyuanUrl}/api/block/getBlockDOM`, {
           method: "POST",
@@ -1362,7 +1362,7 @@ export class ToolRouter {
       case "siyuan_create_doc": {
         const { notebookId, title, content } = _args;
         if (!notebookId || !title) throw new Error("notebookId and title are required");
-        const siyuanUrl2 = process.env.SIYUAN_URL || "http://siyuan:54511";
+        const siyuanUrl2 = process.env.SIYUAN_URL || "http://localhost:54511";
         const siyuanToken2 = process.env.SIYUAN_TOKEN || "";
         const res2 = await fetch(`${siyuanUrl2}/api/filetree/createDocWithMd`, {
           method: "POST",
@@ -1378,7 +1378,7 @@ export class ToolRouter {
       case "siyuan_append_doc": {
         const { id: blockId, content: appendContent } = _args;
         if (!blockId || !appendContent) throw new Error("id and content are required");
-        const siyuanUrl3 = process.env.SIYUAN_URL || "http://siyuan:54511";
+        const siyuanUrl3 = process.env.SIYUAN_URL || "http://localhost:54511";
         const siyuanToken3 = process.env.SIYUAN_TOKEN || "";
         const res3 = await fetch(`${siyuanUrl3}/api/block/appendBlock`, {
           method: "POST",
@@ -1434,7 +1434,7 @@ export class ToolRouter {
         } catch (err: any) {
           // Fallback: try direct SiYuan filetree search
           try {
-            const siyuanUrl4 = process.env.SIYUAN_URL || "http://siyuan:54511";
+            const siyuanUrl4 = process.env.SIYUAN_URL || "http://localhost:54511";
             const siyuanToken4 = process.env.SIYUAN_TOKEN || "";
             const fallbackRes = await fetch(`${siyuanUrl4}/api/filetree/listDocTree`, {
               method: "POST",

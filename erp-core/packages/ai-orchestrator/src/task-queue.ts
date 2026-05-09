@@ -10,10 +10,15 @@ import fs from "fs";
 
 // ─── Types ───────────────────────────────────────────────────
 
-export type TaskStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+export type TaskStatus = "queued" | "running" | "done" | "failed" | "cancelled" | "pending_approval";
 export type TaskType = "browser" | "api" | "file" | "llm" | "system" | "chat" | "tool";
 
 export interface Task {
+  approvalRequired?: boolean;
+  approvalToken?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectionReason?: string | null;
   id: string;
   type: TaskType;
   status: TaskStatus;
@@ -66,7 +71,7 @@ export class TaskQueue {
       CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL CHECK(type IN ('browser','api','file','llm','system','chat','tool')),
-        status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','done','failed','cancelled')),
+        status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','done','failed','cancelled','pending_approval')),
         priority INTEGER NOT NULL DEFAULT 3 CHECK(priority BETWEEN 1 AND 5),
         title TEXT NOT NULL,
         description TEXT DEFAULT '',
@@ -75,6 +80,11 @@ export class TaskQueue {
         error TEXT,
         session_id TEXT,
         source TEXT DEFAULT 'system',
+        approval_required INTEGER DEFAULT 0,
+        approval_token TEXT,
+        approved_by TEXT,
+        approved_at TEXT,
+        rejection_reason TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
         started_at TEXT,
@@ -95,8 +105,8 @@ export class TaskQueue {
     const now = new Date().toISOString();
 
     const stmt = this.db.prepare(`
-      INSERT INTO tasks (id, type, status, priority, title, description, input, session_id, source, created_at, updated_at)
-      VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (id, type, status, priority, title, description, input, session_id, source, approval_required, approval_token, created_at, updated_at)
+      VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -108,6 +118,8 @@ export class TaskQueue {
       JSON.stringify(task.input || {}),
       task.sessionId || null,
       task.source || "system",
+      task.approvalRequired ? 1 : 0,
+      task.approvalToken || null,
       now,
       now,
     );
@@ -300,6 +312,24 @@ export class TaskQueue {
   }
 
   /** ปิด DB connection */
+  approveTask(id: string, approvedBy: string): Task | null {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(
+      "UPDATE tasks SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ? AND (status = ? OR status = ?)"
+    ).run("running", approvedBy, now, now, id, "pending_approval", "queued");
+    if (result.changes === 0) return null;
+    return this.get(id);
+  }
+
+  rejectTask(id: string, reason: string): Task | null {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(
+      "UPDATE tasks SET status = ?, rejection_reason = ?, updated_at = ? WHERE id = ? AND (status = ? OR status = ?)"
+    ).run("cancelled", reason, now, id, "pending_approval", "queued");
+    if (result.changes === 0) return null;
+    return this.get(id);
+  }
+
   close(): void {
     this.db.close();
   }

@@ -7,7 +7,7 @@ import { ToolRouter } from "./tool-router.js";
 import { MemoryStore } from "./memory.js";
 
 const SIYUAN_API = process.env.SIYUAN_URL || "http://172.18.0.1:54511";
-const SIYUAN_TOKEN = process.env.SIYUAN_TOKEN || "9w4oqxucqvq1o8sd";
+const SIYUAN_TOKEN = process.env.SIYUAN_TOKEN || "w8qyx729d7pm5zqn";
 
 interface RoutineJob {
   name: string;
@@ -120,7 +120,7 @@ export class Scheduler {
           const ordersRes = await this.toolRouter.executeTool("list_orders", { limit: 5 });
           const orders = ordersRes.data || [];
           for (const order of orders.slice(0, 3)) {
-            const content = [
+            const markdown = [
               `# Order ${order.id}`,
               "",
               `- Status: ${order.status}`,
@@ -131,16 +131,16 @@ export class Scheduler {
               ...(order.items || []).map((i: any) => `- ${i.name} x${i.quantity}: $${i.price}`),
             ].join("\n");
 
-            await fetch(`${SIYUAN_API}/api/import`, {
+            await fetch(`${SIYUAN_API}/api/filetree/createDocWithMd`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 Authorization: `Token ${SIYUAN_TOKEN}`,
               },
               body: JSON.stringify({
-                notebook: "20260430223407-0hd7gev",
+                notebook: "20260509111113-t9g7090",
                 path: `/ERP Sync/Orders/${order.id}`,
-                content,
+                markdown,
               }),
             });
           }
