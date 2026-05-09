@@ -6,7 +6,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { MemoryStore } from "./memory.js";
-import { ChatStore } from "./chat-store.js";
+import { ChatStore, ChatMessage } from "./chat-store.js";
 import { ToolRouter } from "./tool-router.js";
 import { WebhookHandler } from "./webhooks.js";
 import { Scheduler } from "./scheduler.js";
@@ -18,7 +18,7 @@ import { WorkflowEngine } from "./workflow.js";
 import { BrowserUse } from "./browser-use.js";
 import { BrowserWatchdog } from "./browser-watchdog.js";
 // ─── Architecture v2: PeteAI Autonomous ──────────────────────
-import { LLMGateway } from "./llm-gateway.js";
+import { LLMGateway, LLMMessage } from "./llm-gateway.js";
 import { TaskQueue } from "./task-queue.js";
 import { AgentLoopV2 } from "./agent-loop-v2.js";
 import { OpenHandsBridge } from "./openhands-bridge.js";
@@ -228,55 +228,35 @@ async function main() {
                 }
             }
             catch { }
-            // ─── Process via Agent Loop v2 ─────────────────────────
-            // สร้าง task และรอผลลัพธ์
-            const task = await agentLoopV2.createTask({
-                type: "chat",
-                title: message.slice(0, 100),
-                description: message,
-                input: {
-                    message,
-                    language,
-                    knowledgeContext: knowledgeContext || undefined,
-                },
-                priority: 3,
+            // --- Process via LLM Gateway ---
+            const systemPrompt = "You are ERP Core AI, an intelligent assistant for ERP systems. " +
+                "You help with orders, inventory, customers, and business operations. " +
+                "Answer concisely and accurately in " + (language === "th" ? "Thai" : "the user's language") + "." +
+                (knowledgeContext ? "\n\nKnowledge Base context:\n" + knowledgeContext : "");
+
+            const chatHistory = chatStore.getMessages(sid);
+            const llmMessages: LLMMessage[] = [
+                { role: "system", content: systemPrompt },
+                ...chatHistory.slice(-10).map((m: ChatMessage) => ({
+                    role: m.role === "assistant" ? "assistant" as const : "user" as const,
+                    content: m.content as string,
+                })),
+                { role: "user", content: message },
+            ];
+
+            const llmResponse = await llmGateway.chat(llmMessages, undefined, {
                 sessionId: sid,
                 source: "chat_api",
+                temperature: 0.7,
             });
-            // Auto-start Agent Loop v2 ถ้ายังไม่ทำงาน
-            if (agentLoopV2.getState().status !== "running") {
-                agentLoopV2.start();
-            }
-            // รอให้ task ทำงานเสร็จ (poll ทุก 500ms, timeout 2 นาที)
-            let result;
-            const maxWait = 120000;
-            const start = Date.now();
-            try {
-                while (Date.now() - start < maxWait) {
-                    const current = taskQueue.get(task.id);
-                    if (!current)
-                        break;
-                    if (current.status === "done") {
-                        result = current.output;
-                        break;
-                    }
-                    if (current.status === "failed") {
-                        throw new Error(current.output?.error || "Task failed");
-                    }
-                    await new Promise((r) => setTimeout(r, 500));
-                }
-                if (!result) {
-                    throw new Error("Task timed out after 2 minutes");
-                }
-            }
-            catch (err: any) {
-                throw err;
-            }
+
+            chatStore.addMessage(sid, "user", message);
+            chatStore.addMessage(sid, "assistant", llmResponse.content || "");
+
             res.json({
                 sessionId: sid,
-                response: result?.summary || "Task completed",
-                agent: "erp-v2",
-                toolResults: result,
+                response: llmResponse.content || "",
+                agent: "llm-gateway",
             });
         }
         catch (err: any) {

@@ -34,6 +34,7 @@ export interface LLMToolDef {
 }
 
 export interface LLMResponse {
+    reasoningContent: string | null;
   content: string | null;
   toolCalls?: Array<{ id: string; name: string; args: Record<string, any> }>;
   finishReason: string;
@@ -209,6 +210,7 @@ export class LLMGateway {
 
       response = {
         content: choice.message?.content || null,
+        reasoningContent: choice.message?.reasoning_content || null,
         toolCalls,
         finishReason: choice.finish_reason || "stop",
         usage,
