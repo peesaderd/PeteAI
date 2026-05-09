@@ -21,6 +21,7 @@ import { BrowserWatchdog } from "./browser-watchdog.js";
 // ─── Architecture v2: PeteAI Autonomous ──────────────────────
 import { LLMGateway, LLMMessage } from "./llm-gateway.js";
 import { TaskQueue } from "./task-queue.js";
+import { TaskStatus, TaskType } from "./task-queue.js";
 import { TaskDispatcher } from "./task-dispatcher.js";
 import { AgentLoopV2 } from "./agent-loop-v2.js";
 import { OpenHandsBridge } from "./openhands-bridge.js";
@@ -333,7 +334,7 @@ async function main() {
     });
     // GET /api/chat/sessions — list chat sessions
     app.get("/api/chat/sessions", (_req, res) => {
-        const { limit } = _req.query;
+        const limit = String(_req.query.limit || "");
         const sessions = chatStore.listSessions(limit ? parseInt(limit) : 50);
         res.json(sessions);
     });
@@ -351,13 +352,13 @@ async function main() {
     });
     // GET /api/chat/sessions/:id/messages — get messages
     app.get("/api/chat/sessions/:id/messages", (req, res) => {
-        const { limit } = req.query;
+        const limit = String(req.query.limit || "");
         const messages = chatStore.getMessages(req.params.id, limit ? parseInt(limit) : 100);
         res.json(messages);
     });
     // GET /api/chat/sessions/:id/context — get last N messages for LLM context
     app.get("/api/chat/sessions/:id/context", (req, res) => {
-        const { maxMessages } = req.query;
+        const maxMessages = String(req.query.maxMessages || "");
         const context = chatStore.getContext(req.params.id, maxMessages ? parseInt(maxMessages) : 20);
         res.json(context);
     });
@@ -377,7 +378,7 @@ async function main() {
         }
     });
     app.get("/api/tools", (_req, res) => {
-        const category = _req.query.category;
+        const category = String(_req.query.category || "");
         const tools = toolRouter.getTools(category);
         res.json(tools.map((t) => ({
             name: t.name,
@@ -390,7 +391,7 @@ async function main() {
     // Agent State API
     // ============================================================
     app.get("/api/agents/:agentId/state", (req, res) => {
-        const { tenant_id } = req.query;
+        const tenant_id = String(req.query.tenant_id || "");
         if (!tenant_id) {
             return res.status(400).json({ error: "tenant_id required" });
         }
@@ -538,10 +539,14 @@ async function main() {
     });
     // รายการ tasks
     app.get("/api/agent/tasks", (req, res) => {
-        const { status, type, source, limit, offset } = req.query;
+        const status = String(req.query.status || "");
+        const type = String(req.query.type || "");
+        const source = String(req.query.source || "");
+        const limit = String(req.query.limit || "");
+        const offset = String(req.query.offset || "");
         const tasks = taskQueue.list({
-            status: status,
-            type: type,
+            status: status as TaskStatus,
+            type: type as TaskType,
             source: source,
             limit: limit ? parseInt(limit) : undefined,
             offset: offset ? parseInt(offset) : undefined,
@@ -550,7 +555,7 @@ async function main() {
     });
     // Tasks ที่ failed
     app.get("/api/agent/tasks/failed", (req, res) => {
-        const { limit } = req.query;
+        const limit = String(req.query.limit || "");
         const tasks = taskQueue.list({
             status: "failed",
             limit: limit ? parseInt(limit) : 20,
@@ -611,10 +616,14 @@ async function main() {
     });
     // ลิสต์ tasks
     app.get("/api/v2/tasks", (req, res) => {
-        const { status, type, source, limit, offset } = req.query;
+        const status = String(req.query.status || "");
+        const type = String(req.query.type || "");
+        const source = String(req.query.source || "");
+        const limit = String(req.query.limit || "");
+        const offset = String(req.query.offset || "");
         const tasks = taskQueue.list({
-            status: status,
-            type: type,
+            status: status as TaskStatus,
+            type: type as TaskType,
             source: source,
             limit: limit ? parseInt(limit) : undefined,
             offset: offset ? parseInt(offset) : undefined,
@@ -651,8 +660,9 @@ async function main() {
     });
     // ดู logs ล่าสุด
     app.get("/api/v2/llm/logs", (req, res) => {
-        const { source, limit } = req.query;
-        const logs = llmGateway.getRecentLogs(limit ? parseInt(limit) : 50, source);
+        const source = String(req.query.source || "");
+        const limit = String(req.query.limit || "");
+        const logs = llmGateway.getRecentLogs(limit ? parseInt(limit) : 50, source as any);
         res.json({ logs, count: logs.length });
     });
     // ============================================================
@@ -704,7 +714,7 @@ async function main() {
             }
             const task = {
                 id: uuidv4(),
-                type: "agent_task",
+                type: "agent_task" as const,
                 targetAgent,
                 title,
                 description: description || "",
@@ -743,9 +753,9 @@ async function main() {
                     agent: agentId,
                     conversationId,
                     task: {
-                        id: result.task.id,
-                        phase: result.task.phase,
-                        iteration: result.task.iteration,
+                        id: result.task?.id,
+                        phase: result.task?.phase,
+                        iteration: result.task?.iteration,
                     },
                 });
             }
@@ -813,7 +823,9 @@ async function main() {
     });
     app.get("/api/delegations", (req, res) => {
         try {
-            const { sourceAgent, targetAgent, status } = req.query;
+            const sourceAgent = String(req.query.sourceAgent || "");
+        const targetAgent = String(req.query.targetAgent || "");
+        const status = String(req.query.status || "");
             const delegations = agentLoop.listDelegations({
                 sourceAgent: sourceAgent,
                 targetAgent: targetAgent,
@@ -959,7 +971,7 @@ async function main() {
     app.get("/api/tasks", (req, res) => {
         try {
             const assignee = req.query.assignee;
-            const status = req.query.status;
+            const status = String(req.query.status || "");
             const allTasks = [];
             const agentNames = ["rd", "brainstorm", "production", "design", "marketing"];
             for (const agent of agentNames) {
@@ -1006,17 +1018,17 @@ async function main() {
     // Workflow API - Multi-Agent Collaboration
     // ===============================================================================================
     app.get("/api/workflows/templates", (_req, res) => {
-        res.json({ templates: workflowEngine.getTemplates() });
+        res.json({ templates: workflowEngine?.getTemplates() });
     });
     app.get("/api/workflows/templates/:id", (req, res) => {
-        const t = workflowEngine.getTemplate(req.params.id);
+        const t = workflowEngine?.getTemplate(req.params.id);
         if (!t)
             return res.status(404).json({ error: "Template not found" });
         res.json(t);
     });
     app.post("/api/workflows", (req, res) => {
         try {
-            const wf = workflowEngine.createWorkflow(req.body);
+            const wf = workflowEngine?.createWorkflow(req.body);
             res.status(201).json(wf);
         }
         catch (err: any) {
@@ -1024,18 +1036,18 @@ async function main() {
         }
     });
     app.get("/api/workflows", (req, res) => {
-        const status = req.query.status;
-        res.json({ workflows: workflowEngine.listWorkflows(status) });
+        const status = String(req.query.status || "");
+        res.json({ workflows: workflowEngine?.listWorkflows(status) });
     });
     app.get("/api/workflows/:id", (req, res) => {
-        const wf = workflowEngine.getWorkflow(req.params.id);
+        const wf = workflowEngine?.getWorkflow(req.params.id);
         if (!wf)
             return res.status(404).json({ error: "Workflow not found" });
         res.json(wf);
     });
     app.post("/api/workflows/:id/start", async (req, res) => {
         try {
-            const wf = await workflowEngine.startWorkflow(req.params.id);
+            const wf = await workflowEngine?.startWorkflow(req.params.id);
             res.json(wf);
         }
         catch (err: any) {
@@ -1043,13 +1055,13 @@ async function main() {
         }
     });
     app.post("/api/workflows/:id/cancel", (req, res) => {
-        const ok = workflowEngine.cancelWorkflow(req.params.id);
+        const ok = workflowEngine?.cancelWorkflow(req.params.id);
         if (!ok)
             return res.status(404).json({ error: "Workflow not found or already completed" });
         res.json({ status: "cancelled" });
     });
     app.post("/api/workflows/:id/steps/:stepId/complete", (req, res) => {
-        const ok = workflowEngine.reportStepCompletion(req.params.id, req.params.stepId, req.body.outputData || {});
+        const ok = workflowEngine?.reportStepCompletion(req.params.id, req.params.stepId, req.body.outputData || {});
         if (!ok)
             return res.status(404).json({ error: "Workflow or step not found" });
         res.json({ status: "completed" });
