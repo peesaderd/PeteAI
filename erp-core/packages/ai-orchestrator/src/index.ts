@@ -157,12 +157,31 @@ async function main() {
     // Event callbacks
     agentLoopV2.onTaskStart = (task) => {
         console.log(`[AgentLoopV2] Task started: ${task.id} (${task.title})`);
+        // Log to SiYuan
+        toolRouter.executeTool('siyuan_create_doc', {
+            notebookId: '20260509111113-t9g7090',
+            title: 'Task: ' + task.title.slice(0, 80),
+            content: '# Task Started\n\n- **ID**: ' + task.id + '\n- **Title**: ' + task.title + '\n- **Description**: ' + (task.description || '') + '\n- **Type**: ' + task.type + '\n- **Priority**: ' + (task.priority || 3) + '\n- **Source**: ' + (task.source || 'system') + '\n- **Started At**: ' + new Date().toISOString() + '\n- **Input**: \n\n```json\n' + JSON.stringify(task.input || {}, null, 2).slice(0, 2000) + '\n```\n',
+        }).catch((err) => console.warn("[SiYuan] Failed to log task start:", err.message));
     };
     agentLoopV2.onTaskComplete = (task) => {
         console.log(`[AgentLoopV2] Task done: ${task.id} (${task.title})`);
+        // Log to SiYuan
+        const outputSummary = task.output ? (typeof task.output === 'string' ? task.output : JSON.stringify(task.output).slice(0, 500)) : 'No output';
+        toolRouter.executeTool('siyuan_create_doc', {
+            notebookId: '20260509111113-t9g7090',
+            title: 'Task Complete: ' + task.title.slice(0, 70),
+            content: '# Task Completed\n\n- **ID**: ' + task.id + '\n- **Title**: ' + task.title + '\n- **Status**: done\n- **Completed At**: ' + new Date().toISOString() + '\n- **Output**: \n\n```\n' + outputSummary.slice(0, 3000) + '\n```\n',
+        }).catch((err) => console.warn("[SiYuan] Failed to log task complete:", err.message));
     };
     agentLoopV2.onTaskFailed = (task, error) => {
         console.error(`[AgentLoopV2] Task failed: ${task.id} — ${error.slice(0, 200)}`);
+        // Log to SiYuan
+        toolRouter.executeTool('siyuan_create_doc', {
+            notebookId: '20260509111113-t9g7090',
+            title: 'Task Failed: ' + task.title.slice(0, 70),
+            content: '# Task Failed\n\n- **ID**: ' + task.id + '\n- **Title**: ' + task.title + '\n- **Status**: failed\n- **Failed At**: ' + new Date().toISOString() + '\n- **Error**: \n\n```\n' + error.slice(0, 2000) + '\n```\n',
+        }).catch((err) => console.warn("[SiYuan] Failed to log task failed:", err.message));
     };
     agentLoopV2.onStatusChange = (status) => {
         console.log(`[AgentLoopV2] Status → ${status}`);
@@ -928,6 +947,85 @@ async function main() {
             if (!text) return res.status(400).json({ error: "text required" });
             const task = await taskDispatcher.dispatchFromText(text, source || "dashboard", sessionId);
             res.status(201).json({ status: "dispatched", task });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ============================================================
+    // SiYuan Knowledge Base API
+    // ============================================================
+    // List notebooks
+    app.get('/api/siyuan/notebooks', async (_req, res) => {
+        try {
+            const result = await toolRouter.executeTool('siyuan_search_docs', { keyword: '', limit: 1 });
+            // Fallback: return hardcoded notebooks
+            res.json({
+                notebooks: [
+                    { id: '20210808180117-6v0mkxr', name: 'SiYuan User Guide' },
+                    { id: '20260509111113-t9g7090', name: 'ERP Core Issues' },
+                ],
+            });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Create a new doc in SiYuan
+    app.post('/api/siyuan/docs', async (req, res) => {
+        try {
+            const { notebookId, title, content } = req.body;
+            if (!notebookId || !title) {
+                return res.status(400).json({ error: 'notebookId and title are required' });
+            }
+            const result = await toolRouter.executeTool('siyuan_create_doc', {
+                notebookId,
+                title,
+                content: content || '',
+            });
+            res.status(201).json(result);
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get a doc by ID
+    app.get('/api/siyuan/docs/:id', async (req, res) => {
+        try {
+            const result = await toolRouter.executeTool('siyuan_get_doc', { id: req.params.id });
+            res.json(result);
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Append content to a doc
+    app.post('/api/siyuan/docs/:id/append', async (req, res) => {
+        try {
+            const { content } = req.body;
+            if (!content) {
+                return res.status(400).json({ error: 'content is required' });
+            }
+            const result = await toolRouter.executeTool('siyuan_append_doc', {
+                id: req.params.id,
+                content,
+            });
+            res.json(result);
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Search docs in SiYuan
+    app.get('/api/siyuan/search', async (req, res) => {
+        try {
+            const keyword = String(req.query.q || '');
+            const limit = parseInt(String(req.query.limit || '5'), 10);
+            if (!keyword) {
+                return res.status(400).json({ error: 'q (keyword) is required' });
+            }
+            const result = await toolRouter.executeTool('siyuan_search_docs', { keyword, limit });
+            res.json(result);
         } catch (err: any) {
             res.status(500).json({ error: err.message });
         }

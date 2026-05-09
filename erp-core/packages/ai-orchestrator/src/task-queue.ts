@@ -155,6 +155,11 @@ export class TaskQueue {
     error?: string;
     progress?: number;
     progressMessage?: string;
+    approvalToken?: string;
+    approvalReason?: string;
+    approvedBy?: string;
+    approvedAt?: string;
+    rejectionReason?: string;
   }): Task | null {
     const now = new Date().toISOString();
     const sets: string[] = ["status = ?", "updated_at = ?"];

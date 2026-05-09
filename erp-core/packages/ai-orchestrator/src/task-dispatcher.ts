@@ -97,7 +97,7 @@ export class TaskDispatcher {
         { role: "user", content: text },
       ];
 
-      const response = await this.llm.chat(messages, { model: "deepseek-chat" });
+      const response = await this.llm.chat(messages, undefined, { sessionId: "task-classifier" });
       const agent = (response.content || "").trim().toLowerCase() as AgentId;
 
       if (this.rules.some((r) => r.agent === agent)) {
@@ -145,7 +145,7 @@ export class TaskDispatcher {
   }
 
   rejectTask(taskId: string, rejectedBy: string, reason: string): Task | null {
-    return this.taskQueue.rejectTask(taskId, rejectedBy, reason);
+    return this.taskQueue.rejectTask(taskId, reason);
   }
 
   getPendingApproval(): Task[] {
