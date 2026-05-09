@@ -24,6 +24,7 @@ import AIChatbot from './pages/AIChatbot';
 import AgentDashboard from './pages/AgentDashboard';
 import Forecasting from './pages/Forecasting';
 import FraudDetection from './pages/FraudDetection';
+import UIDemo from './pages/UIDemo';
 
 const NAV_ITEMS = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -132,6 +133,7 @@ export default function App() {
             <Route path="/fraud" element={<FraudDetection />} />
             <Route path="/llm" element={<LLMProviderSettings />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/ui-demo" element={<UIDemo />} />
           </Routes>
         </div>
       </main>
