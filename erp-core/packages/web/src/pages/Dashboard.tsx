@@ -185,11 +185,11 @@ export default function Dashboard() {
   return (
     <div>
       <PageHeader title="Dashboard" description="Real-time business overview">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Activity size={14} className="text-green-500" />
+        <div className="flex items-center gap-2 text-sm text-[hsl(var(--muted-foreground))]">
+          <Activity size={14} className="text-[hsl(var(--chart-2))]" />
           <span>Auto-refresh every 60s</span>
         </div>
-        <button onClick={load} className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+        <button onClick={load} className="p-2 border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--muted))] transition-colors">
           <RefreshCw size={18} />
         </button>
       </PageHeader>
@@ -197,122 +197,122 @@ export default function Dashboard() {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard icon={DollarSign} label="Total Revenue" value={`$${totalRevenue.toLocaleString()}`} trend={revenueTrend} color="bg-green-500" sub="Last 30 days" />
-        <StatCard icon={ShoppingCart} label="Orders" value={totalOrders.toString()} trend={orderTrend} color="bg-blue-500" sub="All time" />
+        <StatCard icon={ShoppingCart} label="Orders" value={totalOrders.toString()} trend={orderTrend} color="bg-[hsl(var(--primary))]/100" sub="All time" />
         <StatCard icon={Users} label="Customers" value={totalCustomers.toString()} color="bg-purple-500" sub="Registered" />
         <StatCard icon={Package} label="Products" value={totalProducts.toString()} color="bg-orange-500" sub="Active SKUs" />
       </div>
 
       {/* Real-time KPI Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
-          <div className="p-3 rounded-lg bg-green-100">
-            <DollarSign size={24} className="text-green-600" />
+        <div className="bg-[hsl(var(--card))] rounded-xl border border-[hsl(var(--border))] p-4 flex items-center gap-4">
+          <div className="p-3 rounded-lg bg-[hsl(var(--chart-2))]/15">
+            <DollarSign size={24} className="text-[hsl(var(--chart-2))]" />
           </div>
           <div>
-            <div className="text-2xl font-bold text-gray-900">${todaySales.toLocaleString()}</div>
-            <div className="text-sm text-gray-500">Today's Sales</div>
+            <div className="text-2xl font-bold text-[hsl(var(--foreground))]">${todaySales.toLocaleString()}</div>
+            <div className="text-sm text-[hsl(var(--muted-foreground))]">Today's Sales</div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
-          <div className="p-3 rounded-lg bg-blue-100">
-            <ShoppingCart size={24} className="text-blue-600" />
+        <div className="bg-[hsl(var(--card))] rounded-xl border border-[hsl(var(--border))] p-4 flex items-center gap-4">
+          <div className="p-3 rounded-lg bg-[hsl(var(--primary))]/15">
+            <ShoppingCart size={24} className="text-[hsl(var(--primary))]" />
           </div>
           <div>
-            <div className="text-2xl font-bold text-gray-900">{pendingOrdersCount}</div>
-            <div className="text-sm text-gray-500">Pending Orders</div>
+            <div className="text-2xl font-bold text-[hsl(var(--foreground))]">{pendingOrdersCount}</div>
+            <div className="text-sm text-[hsl(var(--muted-foreground))]">Pending Orders</div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
-          <div className="p-3 rounded-lg bg-red-100">
-            <AlertTriangle size={24} className="text-red-600" />
+        <div className="bg-[hsl(var(--card))] rounded-xl border border-[hsl(var(--border))] p-4 flex items-center gap-4">
+          <div className="p-3 rounded-lg bg-[hsl(var(--destructive))]/15">
+            <AlertTriangle size={24} className="text-[hsl(var(--destructive))]" />
           </div>
           <div>
-            <div className="text-2xl font-bold text-gray-900">{lowStockCount}</div>
-            <div className="text-sm text-gray-500">Low Stock Items</div>
+            <div className="text-2xl font-bold text-[hsl(var(--foreground))]">{lowStockCount}</div>
+            <div className="text-sm text-[hsl(var(--muted-foreground))]">Low Stock Items</div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         {/* Sales Trends Chart */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
+        <div className="lg:col-span-2 bg-[hsl(var(--card))] rounded-xl border border-[hsl(var(--border))] p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Sales Trends (30 days)</h3>
-            <TrendingUp size={20} className="text-blue-500" />
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Sales Trends (30 days)</h3>
+            <TrendingUp size={20} className="text-[hsl(var(--primary))]" />
           </div>
           {Array.isArray(salesTrends) && salesTrends.length > 0 ? (
             <div className="h-72">
               <Line data={salesChartData} options={salesChartOptions} />
             </div>
           ) : (
-            <div className="h-72 flex items-center justify-center text-gray-400">No sales data available</div>
+            <div className="h-72 flex items-center justify-center text-[hsl(var(--muted-foreground))]">No sales data available</div>
           )}
         </div>
 
         {/* Top Products */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="bg-[hsl(var(--card))] rounded-xl border border-[hsl(var(--border))] p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Top Products</h3>
-            <BarChart3 size={20} className="text-purple-500" />
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Top Products</h3>
+            <BarChart3 size={20} className="text-[hsl(var(--chart-1))]" />
           </div>
           {Array.isArray(topProducts) && topProducts.length > 0 ? (
             <div className="h-72">
               <Bar data={topProductsData} options={topProductsOptions} />
             </div>
           ) : (
-            <div className="h-72 flex items-center justify-center text-gray-400">No product data</div>
+            <div className="h-72 flex items-center justify-center text-[hsl(var(--muted-foreground))]">No product data</div>
           )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Low Stock Alerts */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="bg-[hsl(var(--card))] rounded-xl border border-[hsl(var(--border))] p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Low Stock Alerts</h3>
-            <AlertTriangle size={20} className="text-orange-500" />
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Low Stock Alerts</h3>
+            <AlertTriangle size={20} className="text-[hsl(var(--chart-5))]" />
           </div>
           {lowStockItems.length > 0 ? (
             <div className="space-y-2">
               {lowStockItems.slice(0, 6).map((item: any, i: number) => (
-                <div key={i} className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                <div key={i} className="flex items-center justify-between p-3 bg-[hsl(var(--destructive))]/10 rounded-lg">
                   <div className="flex items-center gap-3">
                     <Package size={16} className="text-red-500" />
-                    <span className="text-sm font-medium text-gray-900">{item.productName || item.name}</span>
+                    <span className="text-sm font-medium text-[hsl(var(--foreground))]">{item.productName || item.name}</span>
                   </div>
-                  <span className="text-sm font-bold text-red-600">{item.quantity || item.stock || 0} left</span>
+                  <span className="text-sm font-bold text-[hsl(var(--destructive))]">{item.quantity || item.stock || 0} left</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="h-40 flex items-center justify-center text-gray-400">All stock levels are healthy</div>
+            <div className="h-40 flex items-center justify-center text-[hsl(var(--muted-foreground))]">All stock levels are healthy</div>
           )}
         </div>
 
         {/* Production Status */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="bg-[hsl(var(--card))] rounded-xl border border-[hsl(var(--border))] p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Production Orders</h3>
-            <Factory size={20} className="text-blue-500" />
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Production Orders</h3>
+            <Factory size={20} className="text-[hsl(var(--primary))]" />
           </div>
           {pendingOrders.length > 0 ? (
             <div className="space-y-2">
               {pendingOrders.slice(0, 6).map((o: any, i: number) => (
-                <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div key={i} className="flex items-center justify-between p-3 bg-[hsl(var(--muted))] rounded-lg">
                   <div className="flex items-center gap-3">
-                    <Truck size={16} className="text-gray-400" />
+                    <Truck size={16} className="text-[hsl(var(--muted-foreground))]" />
                     <div>
-                      <span className="text-sm font-medium text-gray-900">{o.productName || 'Order ' + (o.id?.slice(0, 8) || i)}</span>
-                      <span className="text-xs text-gray-400 ml-2">x{o.quantity || 1}</span>
+                      <span className="text-sm font-medium text-[hsl(var(--foreground))]">{o.productName || 'Order ' + (o.id?.slice(0, 8) || i)}</span>
+                      <span className="text-xs text-[hsl(var(--muted-foreground))] ml-2">x{o.quantity || 1}</span>
                     </div>
                   </div>
                   <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                    o.status === 'in_progress' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>{o.status}</span>
+                    o.status === 'in_progress' ? 'bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))]' : 'bg-[hsl(var(--chart-4))]/15 text-[hsl(var(--chart-4))]'}`}>{o.status}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="h-40 flex items-center justify-center text-gray-400">No active production orders</div>
+            <div className="h-40 flex items-center justify-center text-[hsl(var(--muted-foreground))]">No active production orders</div>
           )}
         </div>
       </div>

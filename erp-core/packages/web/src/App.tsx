@@ -7,6 +7,7 @@ import {
   DollarSign, Megaphone, Bot, Layers, Shield, MessageSquare, TrendingUp
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
+import "./theme-shadcn.css";
 import Products from './pages/Products';
 import Orders from './pages/Orders';
 import Customers from './pages/Customers';
@@ -55,19 +56,19 @@ export default function App() {
   React.useEffect(() => { setMobileSidebarOpen(false); }, [location.pathname]);
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-[hsl(var(--background))]">
       {mobileSidebarOpen && (
         <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setMobileSidebarOpen(false)} />
       )}
-      <button onClick={() => setMobileSidebarOpen(true)} className="fixed top-3 left-3 z-30 p-2 rounded-lg bg-white shadow-md border border-gray-200 md:hidden">
+      <button onClick={() => setMobileSidebarOpen(true)} className="fixed top-3 left-3 z-30 p-2 rounded-lg bg-[hsl(var(--card))] shadow-md border border-[hsl(var(--border))] md:hidden">
         <Menu size={20} />
       </button>
 
       {/* Desktop Sidebar */}
-      <aside className={`hidden md:flex flex-col bg-white border-r border-gray-200 transition-all duration-200 ${sidebarOpen ? 'w-64' : 'w-16'}`}>
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          {sidebarOpen && <h1 className="text-xl font-bold text-gray-800">ERP Core</h1>}
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 rounded hover:bg-gray-100">
+      <aside className={`hidden md:flex flex-col bg-[hsl(var(--card))] border-r border-[hsl(var(--border))] transition-all duration-200 ${sidebarOpen ? 'w-64' : 'w-16'}`}>
+        <div className="p-4 border-b border-[hsl(var(--border))] flex items-center justify-between">
+          {sidebarOpen && <h1 className="text-xl font-bold text-[hsl(var(--foreground))]">ERP Core</h1>}
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 rounded hover:bg-[hsl(var(--muted))]">
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
@@ -77,23 +78,23 @@ export default function App() {
             return (
               <Link key={item.path} to={item.path}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  isActive ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}>
+                  isActive ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]' : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]'}`}>
                 <item.icon size={20} />
                 {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
               </Link>
             );
           })}
         </nav>
-        <div className="p-4 border-t border-gray-200">
-          {sidebarOpen && <div className="text-xs text-gray-400">ERP Core v0.1.0</div>}
+        <div className="p-4 border-t border-[hsl(var(--border))]">
+          {sidebarOpen && <div className="text-xs text-[hsl(var(--muted-foreground))]">ERP Core v0.1.0</div>}
         </div>
       </aside>
 
       {/* Mobile Sidebar */}
-      <aside className={`md:hidden fixed top-0 left-0 z-30 h-full bg-white border-r border-gray-200 transition-transform duration-200 flex flex-col ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'} w-64`}>
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-800">ERP Core</h1>
-          <button onClick={() => setMobileSidebarOpen(false)} className="p-1 rounded hover:bg-gray-100"><X size={20} /></button>
+      <aside className={`md:hidden fixed top-0 left-0 z-30 h-full bg-[hsl(var(--card))] border-r border-[hsl(var(--border))] transition-transform duration-200 flex flex-col ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'} w-64`}>
+        <div className="p-4 border-b border-[hsl(var(--border))] flex items-center justify-between">
+          <h1 className="text-xl font-bold text-[hsl(var(--foreground))]">ERP Core</h1>
+          <button onClick={() => setMobileSidebarOpen(false)} className="p-1 rounded hover:bg-[hsl(var(--muted))]"><X size={20} /></button>
         </div>
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           {NAV_ITEMS.map(item => {
@@ -101,14 +102,14 @@ export default function App() {
             return (
               <Link key={item.path} to={item.path}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  isActive ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}>
+                  isActive ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]' : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]'}`}>
                 <item.icon size={20} />
                 <span className="text-sm font-medium">{item.label}</span>
               </Link>
             );
           })}
         </nav>
-        <div className="p-4 border-t border-gray-200"><div className="text-xs text-gray-400">ERP Core v0.1.0</div></div>
+        <div className="p-4 border-t border-[hsl(var(--border))]"><div className="text-xs text-[hsl(var(--muted-foreground))]">ERP Core v0.1.0</div></div>
       </aside>
 
       {/* Main Content */}
