@@ -12,8 +12,19 @@ async function request(path: string, options?: RequestInit) {
   return res.json();
 }
 
+// MCP calls go directly to /mcp (not /api/mcp) to match server route
 function mcp(tool: string, args: any) {
-  return request('/mcp', { method: 'POST', body: JSON.stringify({ tool, args }) });
+  return fetch('/mcp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tool, args }),
+  }).then(async (res) => {
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || 'MCP Error');
+    }
+    return res.json();
+  });
 }
 
 function restGet(path: string) {

@@ -13,6 +13,7 @@ export default function Dashboard() {
   const [topProducts, setTopProducts] = useState<any[]>([]);
   const [inventoryReport, setInventoryReport] = useState<any>(null);
   const [productionOrders, setProductionOrders] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [todaySales, setTodaySales] = useState<number>(0);
   const [pendingOrdersCount, setPendingOrdersCount] = useState<number>(0);
@@ -21,24 +22,27 @@ export default function Dashboard() {
   const load = async () => {
     setLoading(true);
     try {
-      const [s, st, tp, inv, prod] = await Promise.all([
+      const [s, st, tp, inv, prod, cust] = await Promise.all([
         api.dashboard.summary(),
         api.dashboard.salesTrends(),
         api.dashboard.topProducts(),
         api.dashboard.inventoryReport(),
         api.dashboard.productionOrders(),
+        api.customers.list(),
       ]);
       const summaryData = JSON.parse(s.content[0].text);
       const trendsData = JSON.parse(st.content[0].text);
       const productsData = JSON.parse(tp.content[0].text);
       const inventoryData = JSON.parse(inv.content[0].text);
       const prodData = JSON.parse(prod.content[0].text);
+      const customersData = JSON.parse(cust.content[0].text);
 
       setSummary(summaryData);
       setSalesTrends(trendsData);
       setTopProducts(productsData);
       setInventoryReport(inventoryData);
       setProductionOrders(prodData);
+      setCustomers(Array.isArray(customersData) ? customersData : []);
 
       // Calculate real-time KPIs
       const today = new Date().toISOString().slice(0, 10);
@@ -65,12 +69,12 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  const totalRevenue = summary?.totalRevenue || 0;
-  const totalOrders = summary?.totalOrders || 0;
-  const totalCustomers = summary?.totalCustomers || 0;
-  const totalProducts = summary?.totalProducts || 0;
-  const revenueTrend = summary?.revenueTrend || 0;
-  const orderTrend = summary?.orderTrend || 0;
+  const totalRevenue = summary?.metrics?.revenue?.value ?? summary?.totalRevenue ?? 0;
+  const totalOrders = summary?.metrics?.orders?.value ?? summary?.totalOrders ?? 0;
+  const totalCustomers = summary?.totalCustomers ?? (Array.isArray(customers) ? customers.length : 0);
+  const totalProducts = inventoryReport?.totalProducts ?? summary?.totalProducts ?? 0;
+  const revenueTrend = summary?.metrics?.revenue?.change ?? summary?.revenueTrend ?? 0;
+  const orderTrend = summary?.metrics?.orders?.change ?? summary?.orderTrend ?? 0;
 
   const lowStockItems = inventoryReport?.lowStockItems || [];
   const pendingOrders = productionOrders.filter((o: any) => o.status === 'pending' || o.status === 'in_progress');
