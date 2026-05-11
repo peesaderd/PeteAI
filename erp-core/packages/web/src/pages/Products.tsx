@@ -22,7 +22,8 @@ export default function Products() {
         api.bom.list(),
       ]);
       setProducts(JSON.parse(p.content[0].text));
-      setInventory(JSON.parse(i.content[0].text));
+      const invData = JSON.parse(i.content[0].text);
+      setInventory(Array.isArray(invData) ? invData : (invData.products || []));
       setBoms(JSON.parse(b.content[0].text));
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -36,13 +37,13 @@ export default function Products() {
   const columns = [
     { header: 'SKU', accessor: 'sku' },
     { header: 'Name', accessor: 'name' },
-    { header: 'Price', render: (r: any) => `$${r.price?.toFixed(2)}` },
-    { header: 'Cost', render: (r: any) => `$${r.cost?.toFixed(2)}` },
+    { header: 'Price', render: (r: any) => `$${(r.price || 0).toFixed(2)}` },
+    { header: 'Cost', render: (r: any) => `$${(r.cost_price || r.cost || 0).toFixed(2)}` },
     { header: 'Stock', render: (r: any) => {
-      const inv = inventory.find((i: any) => i.productId === r.id || i.product_id === r.id);
-      return <span className={`font-medium ${inv && (inv.quantity || 0) <= 5 ? 'text-red-600' : ''}`}>{inv?.quantity || inv?.stock || 0}</span>;
+      const inv = inventory.find((i: any) => i.productId === r.id || i.product_id === r.id || i.id === r.id);
+      return <span className={`font-medium ${inv && (inv.quantity || 0) <= 5 ? 'text-red-600' : ''}`}>{inv?.quantity || r.quantity || 0}</span>;
     }},
-    { header: 'Status', render: (r: any) => <StatusBadge status={r.isActive || r.is_active ? 'active' : 'inactive'} /> },
+    { header: 'Status', render: (r: any) => <StatusBadge status={r.status === 'active' ? 'active' : 'inactive'} /> },
   ];
 
   return (
