@@ -1392,8 +1392,9 @@ export class ToolRouter {
         return { success: res3.ok, data: data3 };
       }
       case "siyuan_search_docs": {
-        const { keyword, limit = 5 } = _args;
+        const { keyword = _args.query, limit = 5 } = _args;
         if (!keyword) throw new Error("keyword is required");
+      
         // Check cache first
         const cacheKey = "siyuan_search:" + keyword.toLowerCase();
         const cached = this.siyuanCache.get(cacheKey);

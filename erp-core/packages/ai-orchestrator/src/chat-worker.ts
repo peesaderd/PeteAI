@@ -353,7 +353,6 @@ export class ChatWorker {
       }
     }
   }
-
   // ─── LLM Mode ──────────────────────────────────────────────
 
   private async processWithLLM(
@@ -396,25 +395,69 @@ export class ChatWorker {
       });
     }
 
-    const response = await this.llm.chat(llmMessages, toolDefs, {
-      maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096", 10),
-      temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.3"),
-    });
-
-    // Execute any tool calls
+    const maxIterations = 10;
     const toolResults: any[] = [];
-    if (response.toolCalls && response.toolCalls.length > 0) {
-      for (const tc of response.toolCalls) {
-        try {
-          const result = await this.toolRouter.executeTool(tc.name, tc.args);
-          toolResults.push({ tool: tc.name, args: tc.args, result });
-        } catch (err: any) {
-          toolResults.push({ tool: tc.name, args: tc.args, error: err.message });
+    let finalReply = "";
+
+    for (let iteration = 0; iteration < maxIterations; iteration++) {
+      const response = await this.llm.chat(llmMessages, toolDefs, {
+        maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096", 10),
+        temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.3"),
+      });
+
+      // Execute any tool calls
+      if (response.toolCalls && response.toolCalls.length > 0) {
+        for (const tc of response.toolCalls) {
+          try {
+            const result = await this.toolRouter.executeTool(tc.name, tc.args);
+            toolResults.push({ tool: tc.name, args: tc.args, result });
+
+            // Add assistant message with tool call
+            llmMessages.push({
+              role: "assistant",
+              content: response.content || "",
+              tool_calls: [
+                {
+                  id: tc.id,
+                  type: "function",
+                  function: {
+                    name: tc.name,
+                    arguments: JSON.stringify(tc.args),
+                  },
+                },
+              ],
+            });
+
+            // Add tool result message
+            llmMessages.push({
+              role: "tool",
+              content: JSON.stringify(result),
+              tool_call_id: tc.id,
+              name: tc.name,
+            });
+          } catch (err: any) {
+            toolResults.push({ tool: tc.name, args: tc.args, error: err.message });
+
+            llmMessages.push({
+              role: "tool",
+              content: JSON.stringify({ error: err.message }),
+              tool_call_id: tc.id,
+              name: tc.name,
+            });
+          }
         }
+        // Continue loop to let LLM analyze tool results
+        continue;
       }
+
+      // No tool calls → this is the final response
+      finalReply = response.content || "I processed your request but couldn't generate a response.";
+      break;
     }
 
-    const reply = response.content || "I processed your request but couldn't generate a response.";
+    if (!finalReply) {
+      finalReply = "I've completed the analysis but couldn't generate a final response.";
+    }
 
     // Store in memory
     try {
@@ -423,7 +466,7 @@ export class ChatWorker {
       console.error(`[ChatWorker] addMessage(user) failed:`, err.message);
     }
     try {
-      this.chatStore.addMessage(sessionId, "assistant", reply, {
+      this.chatStore.addMessage(sessionId, "assistant", finalReply, {
         toolResults: JSON.stringify(toolResults),
       });
     } catch (err: any) {
@@ -432,7 +475,7 @@ export class ChatWorker {
 
     // Publish response
     await this.publishResponse(sessionId, {
-      response: reply,
+      response: finalReply,
       agent,
       toolResults,
     });
