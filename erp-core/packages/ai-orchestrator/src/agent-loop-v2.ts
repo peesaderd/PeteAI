@@ -444,38 +444,36 @@ export class AgentLoopV2 {
     if (!searchTerms.length) return null;
 
     try {
-      // ค้นหาจาก SiYuan ก่อน
-      const siyuanResult = await this.toolRouter.executeTool("siyuan_search_docs", {
-        query: searchTerms.join(" "),
-        limit: 3,
-      });
+      // Try all terms together first, then each term individually
+      // (KB search uses LIKE '%query%' which does AND matching across the whole string)
+      const queries = [
+        searchTerms.join(" "),
+        ...searchTerms,
+      ];
 
-      if (siyuanResult?.success && siyuanResult?.data?.length > 0) {
-        const docs: string[] = [];
-        for (const doc of siyuanResult.data.slice(0, 3)) {
-          const docResult = await this.toolRouter.executeTool("siyuan_get_doc", {
-            id: doc.id,
-          });
-          if (docResult?.success && docResult?.data) {
-            docs.push(`--- ${doc.title || "Untitled"} ---\n${docResult.data}`);
+      const seen = new Set<string>();
+      const docs: string[] = [];
+
+      for (const q of queries) {
+        if (docs.length >= 3) break;
+        const result = await this.toolRouter.executeTool("siyuan_search_docs", {
+          query: q,
+          limit: 3,
+        });
+
+        if (result?.success && result?.data?.length > 0) {
+          for (const doc of result.data) {
+            if (seen.has(doc.id)) continue;
+            seen.add(doc.id);
+            if (doc.content && docs.length < 3) {
+              docs.push(`--- ${doc.title || "Untitled"} ---\n${doc.content}`);
+            }
           }
-        }
-        if (docs.length > 0) {
-          return docs.join("\n\n");
         }
       }
 
-      // Fallback: ค้นหาจาก KB
-      const kbResult = await this.toolRouter.executeTool("kb_query", {
-        query: searchTerms.join(" "),
-        limit: 3,
-      });
-
-      if (kbResult?.success && kbResult?.data) {
-        const content = typeof kbResult.data === "string"
-          ? kbResult.data
-          : JSON.stringify(kbResult.data);
-        return content;
+      if (docs.length > 0) {
+        return docs.join("\n\n");
       }
     } catch (err: any) {
       console.warn(`[AgentLoopV2] Knowledge retrieval failed: ${err.message}`);
@@ -511,14 +509,9 @@ export class AgentLoopV2 {
         query: task.title,
         limit: 1,
       });
-      if (result?.success && result?.data?.[0]?.id) {
-        const doc = await this.toolRouter.executeTool("siyuan_get_doc", {
-          id: result.data[0].id,
-        });
-        if (doc?.success && doc?.data) {
-          const content = typeof doc.data === "string" ? doc.data : JSON.stringify(doc.data);
-          return `[Fallback — from SiYuan]\n\n${content.slice(0, 2000)}`;
-        }
+      if (result?.success && result?.data?.[0]?.content) {
+        const content = result.data[0].content;
+        return `[Fallback — from SiYuan]\n\n${content.slice(0, 2000)}`;
       }
     } catch {
       // ignore search errors
@@ -528,12 +521,12 @@ export class AgentLoopV2 {
     return `[Fallback — LLM unavailable]\n\nI received your request "${task.title}" but the AI service is currently unavailable. Please try again later. If this persists, check the LLM configuration and API status.`;
   }
 
-  /** สกัดคำค้นหาจาก task */
+  /** สกัดคำค้นหาจาก task — ใช้เฉพาะคำภาษาอังกฤษ (KB content เป็นภาษาอังกฤษ) */
   private extractSearchTerms(task: Task): string[] {
     const terms = new Set<string>();
     const text = `${task.title} ${task.description} ${JSON.stringify(task.input || {})}`.toLowerCase();
 
-    // ตัดคำที่สำคัญ (อย่างน้อย 3 ตัวอักษร)
+    // ตัดคำที่สำคัญ (อย่างน้อย 3 ตัวอักษร, ภาษาอังกฤษเท่านั้น)
     const words = text.split(/[\s,._\-:;!?()]+/);
     const stopWords = new Set([
       "the", "a", "an", "is", "are", "was", "were", "be", "been",
@@ -545,7 +538,8 @@ export class AgentLoopV2 {
     ]);
 
     for (const word of words) {
-      if (word.length >= 3 && !stopWords.has(word)) {
+      // กรองเฉพาะคำภาษาอังกฤษ (a-z) ความยาว >= 3 และไม่ใช่ stop word
+      if (word.length >= 3 && /^[a-z]+$/.test(word) && !stopWords.has(word)) {
         terms.add(word);
       }
     }
