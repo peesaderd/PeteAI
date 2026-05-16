@@ -64,6 +64,10 @@ const TOOLS = [
     offset: z.number().optional().describe('Offset for pagination'),
   })),
 
+  tool('list_categories', 'List all product categories', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
   tool('get_product', 'Get product details', z.object({
     tenantId: z.string().describe('Tenant ID'),
     productId: z.string().describe('Product ID'),
@@ -1576,6 +1580,11 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       params.push(limit, offset);
       const products = db.prepare(sql).all(...params);
       return { content: [{ type: 'text', text: JSON.stringify(products, null, 2) }] };
+    }
+
+    case 'list_categories': {
+      const categories = db.prepare('SELECT * FROM categories WHERE tenant_id = ? ORDER BY name ASC').all(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(categories, null, 2) }] };
     }
 
     case 'get_product': {

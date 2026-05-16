@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Agent Dashboard — ERP Core</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  body { font-family: 'Sarabun', 'IBM Plex Sans Thai', sans-serif; }
+  .card { @apply bg-white rounded-xl shadow-sm border border-gray-100 p-5; }
+  .badge { @apply px-2 py-0.5 rounded-full text-xs font-medium; }
+  .badge-todo { @apply bg-gray-100 text-gray-700; }
+  .badge-running { @apply bg-blue-100 text-blue-700; }
+  .badge-done { @apply bg-green-100 text-green-700; }
+  .badge-failed { @apply bg-red-100 text-red-700; }
+  .kanban-col { @apply bg-gray-50 rounded-lg p-3 min-h-[300px]; }
+  .kanban-card { @apply bg-white rounded-lg shadow-sm border border-gray-200 p-3 mb-2 cursor-pointer hover:shadow-md transition-shadow; }
+  .log-entry { @apply border-l-4 pl-3 py-1.5 text-sm; }
+  .log-info { @apply border-l-blue-400; }
+  .log-warn { @apply border-l-yellow-400; }
+  .log-error { @apply border-l-red-400; }
+  .log-success { @apply border-l-green-400; }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+<div class="max-w-7xl mx-auto px-4 py-4">
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-bold">AI Agent Dashboard</h1>
+      <p class="text-sm text-gray-500">ERP Core — Agent Loop V2</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="healthBadge" class="badge bg-green-100 text-green-700">● Online</span>
+      <button onclick="refreshAll()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Refresh</button>
+    </div>
+  </div>
+
+  <!-- Row 1: System Health + LLM Usage -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+    <div class="card lg:col-span-2">
+      <h2 class="font-semibold text-lg mb-3">System Health</h2>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="healthCards">
+        <div class="text-center p-3 bg-gray-50 rounded-lg"><div class="text-2xl font-bold text-gray-400">...</div><div class="text-xs text-gray-500">ai-orchestrator</div></div>
+        <div class="text-center p-3 bg-gray-50 rounded-lg"><div class="text-2xl font-bold text-gray-400">...</div><div class="text-xs text-gray-500">task-manager</div></div>
+        <div class="text-center p-3 bg-gray-50 rounded-lg"><div class="text-2xl font-bold text-gray-400">...</div><div class="text-xs text-gray-500">SiYuan</div></div>
+        <div class="text-center p-3 bg-gray-50 rounded-lg"><div class="text-2xl font-bold text-gray-400">...</div><div class="text-xs text-gray-500">Redis</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2 class="font-semibold text-lg mb-3">LLM Usage</h2>
+      <canvas id="llmChart" height="150"></canvas>
+      <div class="mt-2 text-xs text-gray-500 text-center" id="llmStats">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Row 2: Kanban Board -->
+  <div class="card mb-6">
+    <h2 class="font-semibold text-lg mb-3">Task Board</h2>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3" id="kanbanBoard">
+      <div class="kanban-col"><div class="font-medium text-sm text-gray-600 mb-2">📋 Todo</div><div id="kanban-todo"></div></div>
+      <div class="kanban-col"><div class="font-medium text-sm text-gray-600 mb-2">🔄 Running</div><div id="kanban-running"></div></div>
+      <div class="kanban-col"><div class="font-medium text-sm text-gray-600 mb-2">✅ Done</div><div id="kanban-done"></div></div>
+      <div class="kanban-col"><div class="font-medium text-sm text-gray-600 mb-2">❌ Failed</div><div id="kanban-failed"></div></div>
+    </div>
+  </div>
+
+  <!-- Row 3: Activity Log + Audit Trail -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <div class="card">
+      <h2 class="font-semibold text-lg mb-3">Agent Activity Log</h2>
+      <div id="activityLog" class="space-y-1 max-h-64 overflow-y-auto text-sm"></div>
+    </div>
+    <div class="card">
+      <h2 class="font-semibold text-lg mb-3">Audit Trail</h2>
+      <div id="auditTrail" class="space-y-1 max-h-64 overflow-y-auto text-sm"></div>
+    </div>
+  </div>
+
+  <!-- Row 4: Projects -->
+  <div class="card">
+    <h2 class="font-semibold text-lg mb-3">Projects</h2>
+    <div id="projectList" class="space-y-2 max-h-48 overflow-y-auto"></div>
+  </div>
+</div>
+
+<script>
+const TM = "http://localhost:8081";
+const SIYUAN = "http://localhost:54511";
+const SIYUAN_TOKEN = "w8qyx729d7pm5zqn";
+const TENANT = "erp-core";
+
+async function fetchJSON(url, opts = {}) {
+  try { const r = await fetch(url, opts); return await r.json(); }
+  catch (e) { return null; }
+}
+
+async function refreshAll() {
+  refreshHealth();
+  refreshTasks();
+  refreshProjects();
+  refreshActivityLog();
+  refreshAuditTrail();
+  refreshLLMUsage();
+}
+
+async function refreshHealth() {
+  const services = [
+    { name: "ai-orchestrator", url: "http://localhost:54516/health" },
+    { name: "task-manager", url: TM + "/api/health" },
+    { name: "SiYuan", url: SIYUAN + "/api/system/version", headers: { "Authorization": "Token " + SIYUAN_TOKEN } },
+    { name: "Redis", url: "http://localhost:54516/health" },
+  ];
+  for (const svc of services) {
+    try {
+      const r = await fetch(svc.url, { headers: svc.headers || {} });
+      document.getElementById("healthCards").children[services.indexOf(svc)].innerHTML =
+        '<div class="text-2xl font-bold text-green-600">✓</div><div class="text-xs text-gray-500">' + svc.name + '</div>';
+    } catch {
+      document.getElementById("healthCards").children[services.indexOf(svc)].innerHTML =
+        '<div class="text-2xl font-bold text-red-500">✗</div><div class="text-xs text-gray-500">' + svc.name + '</div>';
+    }
+  }
+}
+
+async function refreshTasks() {
+  const data = await fetchJSON(TM + "/api/tasks?limit=50&tenant_id=" + TENANT);
+  if (!data) return;
+  const cols = { todo: [], running: [], done: [], failed: [] };
+  for (const t of data) {
+    const s = t.status || "todo";
+    if (cols[s]) cols[s].push(t); else cols.todo.push(t);
+  }
+  for (const [status, tasks] of Object.entries(cols)) {
+    const el = document.getElementById("kanban-" + status);
+    el.innerHTML = tasks.map(t =>
+      '<div class="kanban-card"><div class="font-medium text-sm">' + (t.title || t.id.slice(0, 8)) +
+      '</div><div class="text-xs text-gray-400 mt-1">' + (t.updated_at ? new Date(t.updated_at * 1000).toLocaleString() : "") + '</div></div>'
+    ).join("") || '<div class="text-xs text-gray-400 text-center py-4">—</div>';
+  }
+}
+
+async function refreshProjects() {
+  const data = await fetchJSON(TM + "/api/projects?tenant_id=" + TENANT);
+  if (!data) { document.getElementById("projectList").innerHTML = '<div class="text-sm text-gray-400">No projects</div>'; return; }
+  document.getElementById("projectList").innerHTML = data.map(p =>
+    '<div class="flex items-center justify-between py-1 border-b border-gray-100 last:border-0"><span class="text-sm">' +
+    (p.name || p.id) + '</span><span class="badge badge-' + (p.status || "todo") + '">' + (p.status || "todo") + '</span></div>'
+  ).join("");
+}
+
+async function refreshActivityLog() {
+  const el = document.getElementById("activityLog");
+  const data = await fetchJSON(SIYUAN + "/api/query/sql", {
+    method: "POST",
+    headers: { "Authorization": "Token " + SIYUAN_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify({ stmt: "SELECT * FROM blocks WHERE type = 'l' ORDER BY updated DESC LIMIT 20" })
+  });
+  if (!data || !data.data) { el.innerHTML = '<div class="text-sm text-gray-400">No log entries</div>'; return; }
+  el.innerHTML = data.data.map(b =>
+    '<div class="log-entry log-info"><span class="text-gray-400 text-xs">' +
+    (b.updated ? new Date(b.updated).toLocaleString() : "") + '</span> <span class="text-gray-700">' +
+    (b.content || "").slice(0, 120) + '</span></div>'
+  ).join("");
+}
+
+async function refreshAuditTrail() {
+  const el = document.getElementById("auditTrail");
+  const data = await fetchJSON(SIYUAN + "/api/query/sql", {
+    method: "POST",
+    headers: { "Authorization": "Token " + SIYUAN_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify({ stmt: "SELECT * FROM blocks WHERE type = 'a' ORDER BY updated DESC LIMIT 20" })
+  });
+  if (!data || !data.data) { el.innerHTML = '<div class="text-sm text-gray-400">No audit entries</div>'; return; }
+  el.innerHTML = data.data.map(b =>
+    '<div class="log-entry log-info"><span class="text-gray-400 text-xs">' +
+    (b.updated ? new Date(b.updated).toLocaleString() : "") + '</span> <span class="text-gray-700">' +
+    (b.content || "").slice(0, 120) + '</span></div>'
+  ).join("");
+}
+
+async function refreshLLMUsage() {
+  const el = document.getElementById("llmStats");
+  const data = await fetchJSON("http://localhost:54516/api/llm-usage");
+  if (!data) { el.textContent = "No data"; return; }
+  el.textContent = "Tokens: " + (data.totalTokens || 0) + " | Cost: $" + (data.totalCost || "0.00");
+}
+
+// Init
+refreshAll();
+setInterval(refreshAll, 15000);
+</script>
+</body>
+</html>

@@ -1,0 +1,305 @@
+{
+  "id": "52a28c6c-2673-45a7-a3ff-082b01f61806",
+  "graph": {
+    "nodes": [
+      {
+        "id": "1778541216218",
+        "type": "custom",
+        "data": {
+          "variables": [
+            {
+              "variable": "prompt",
+              "label": "promptPrompt",
+              "type": "text-input",
+              "required": true,
+              "options": [],
+              "placeholder": "",
+              "default": "",
+              "hint": "",
+              "max_length": 256
+            }
+          ],
+          "type": "start",
+          "title": "User Input",
+          "selected": false
+        },
+        "position": {
+          "x": 80,
+          "y": 282
+        },
+        "targetPosition": "left",
+        "sourcePosition": "right",
+        "positionAbsolute": {
+          "x": 80,
+          "y": 282
+        },
+        "width": 242,
+        "height": 109,
+        "selected": false
+      },
+      {
+        "id": "1778541310532",
+        "type": "custom",
+        "data": {
+          "tool_parameters": {
+            "prompt": {
+              "type": "mixed",
+              "value": "{{prompt}}"
+            },
+            "images": {
+              "type": "constant",
+              "value": null
+            }
+          },
+          "tool_configurations": {
+            "model": {
+              "type": "constant",
+              "value": "gemini-2.5-flash-image"
+            }
+          },
+          "tool_node_version": "2",
+          "type": "tool",
+          "title": "Gemini Image Generate and Edit",
+          "provider_id": "langgenius/gemini_image/gemini_image",
+          "provider_type": "builtin",
+          "provider_name": "langgenius/gemini_image/gemini_image",
+          "plugin_id": "langgenius/gemini_image",
+          "plugin_unique_identifier": "langgenius/gemini_image:0.1.7@70baa1391bf2dddbd0c8a6ada3fd7ec9690d6abbfdc6f45d3ce33bd26ce4d11a",
+          "provider_icon": "http://127.0.0.1:5001/console/api/workspaces/current/plugin/icon?tenant_id=a00cf46d-1b58-48ed-9212-cb61ac6367df&filename=1a5efebcdcb722a86c72848ea24502de161c804d186a533b2bc112f2181a4a07.png",
+          "tool_name": "image_generate",
+          "tool_label": "Gemini Image Generate and Edit",
+          "tool_description": "Gemini Image Generate is a text to image generation and editing tool",
+          "is_team_authorization": true,
+          "paramSchemas": [
+            {
+              "name": "prompt",
+              "label": {
+                "en_US": "Prompt",
+                "zh_Hans": "提示词",
+                "pt_BR": "Prompt",
+                "ja_JP": "プロンプト"
+              },
+              "placeholder": null,
+              "scope": null,
+              "auto_generate": null,
+              "template": null,
+              "required": true,
+              "default": null,
+              "min": null,
+              "max": null,
+              "precision": null,
+              "options": [],
+              "type": "string",
+              "human_description": {
+                "en_US": "Detailed description of the image you want to generate (max 32000 tokens). Check the official Gemini documentation.",
+                "zh_Hans": "您想要生成的图像的详细描述（最多 32000 tokens）。请查看 Gemini 的官方文档。",
+                "pt_BR": "Detailed description of the image you want to generate (max 32000 tokens). Check the official Gemini documentation.",
+                "ja_JP": "生成したい画像の細かな説明(最大 32000 トークン)。Gemini 公式ドキュメントを参照してください。"
+              },
+              "form": "llm",
+              "llm_description": "Detailed image prompt for Gemini Image Generate(max 32000 tokens). Describe the desired image clearly."
+            },
+            {
+              "name": "images",
+              "label": {
+                "en_US": "Image(s)",
+                "zh_Hans": "图像",
+                "pt_BR": "Image(s)",
+                "ja_JP": "画像"
+              },
+              "placeholder": null,
+              "scope": null,
+              "auto_generate": null,
+              "template": null,
+              "required": false,
+              "default": null,
+              "min": null,
+              "max": null,
+              "precision": null,
+              "options": [],
+              "type": "files",
+              "human_description": {
+                "en_US": "One or more images to edit (PNG, JPEG, or WebP, each <7MB).",
+                "zh_Hans": "要编辑的一张或多张图像（PNG、JPEG 或 WebP，每张小于 7MB）。",
+                "pt_BR": "One or more images to edit (PNG, JPEG, or WebP, each <7MB).",
+                "ja_JP": "編集対象の画像(PNG, JPEG, or WebP, 1つ当たり最大 7MB)"
+              },
+              "form": "llm",
+              "llm_description": ""
+            },
+            {
+              "name": "model",
+              "label": {
+                "en_US": "Gemini Model",
+                "zh_Hans": "Gemini 模型",
+                "pt_BR": "Gemini Model",
+                "ja_JP": "Gemini モデル"
+              },
+              "placeholder": null,
+              "scope": null,
+              "auto_generate": null,
+              "template": null,
+              "required": false,
+              "default": "gemini-2.5-flash-image",
+              "min": null,
+              "max": null,
+              "precision": null,
+              "options": [
+                {
+                  "value": "gemini-2.5-flash-image",
+                  "label": {
+                    "en_US": "Nano Banana",
+                    "zh_Hans": "Nano Banana",
+                    "pt_BR": "Nano Banana",
+                    "ja_JP": "Nano Banana"
+                  },
+                  "icon": ""
+                },
+                {
+                  "value": "gemini-3-pro-image-preview",
+                  "label": {
+                    "en_US": "Nano Banana Pro",
+                    "zh_Hans": "Nano Banana Pro",
+                    "pt_BR": "Nano Banana Pro",
+                    "ja_JP": "Nano Banana Pro"
+                  },
+                  "icon": ""
+                }
+              ],
+              "type": "select",
+              "human_description": {
+                "en_US": "Select the gemini model",
+                "zh_Hans": "选择Gemini模型",
+                "pt_BR": "Select the gemini model",
+                "ja_JP": "Gemini モデルを選択"
+              },
+              "form": "form",
+              "llm_description": ""
+            }
+          ],
+          "params": {
+            "prompt": "",
+            "images": "",
+            "model": ""
+          },
+          "selected": false
+        },
+        "position": {
+          "x": 382,
+          "y": 282
+        },
+        "targetPosition": "left",
+        "sourcePosition": "right",
+        "positionAbsolute": {
+          "x": 382,
+          "y": 282
+        },
+        "width": 242,
+        "height": 88,
+        "selected": true
+      }
+    ],
+    "edges": [
+      {
+        "id": "1778541216218-source-1778541310532-target",
+        "type": "custom",
+        "source": "1778541216218",
+        "sourceHandle": "source",
+        "target": "1778541310532",
+        "targetHandle": "target",
+        "data": {
+          "sourceType": "start",
+          "targetType": "tool",
+          "isInIteration": false,
+          "isInLoop": false
+        },
+        "zIndex": 0
+      }
+    ],
+    "viewport": {
+      "x": -171,
+      "y": 6,
+      "zoom": 1
+    }
+  },
+  "features": {
+    "opening_statement": "",
+    "suggested_questions": [],
+    "suggested_questions_after_answer": {
+      "enabled": false
+    },
+    "text_to_speech": {
+      "enabled": false,
+      "voice": "",
+      "language": ""
+    },
+    "speech_to_text": {
+      "enabled": false
+    },
+    "retriever_resource": {
+      "enabled": true
+    },
+    "sensitive_word_avoidance": {
+      "enabled": false
+    },
+    "file_upload": {
+      "image": {
+        "enabled": false,
+        "number_limits": 3,
+        "transfer_methods": [
+          "local_file",
+          "remote_url"
+        ]
+      },
+      "enabled": false,
+      "allowed_file_types": [
+        "image"
+      ],
+      "allowed_file_extensions": [
+        ".JPG",
+        ".JPEG",
+        ".PNG",
+        ".GIF",
+        ".WEBP",
+        ".SVG"
+      ],
+      "allowed_file_upload_methods": [
+        "local_file",
+        "remote_url"
+      ],
+      "number_limits": 3,
+      "fileUploadConfig": {
+        "file_size_limit": 15,
+        "batch_count_limit": 5,
+        "file_upload_limit": 20,
+        "image_file_size_limit": 10,
+        "video_file_size_limit": 100,
+        "audio_file_size_limit": 50,
+        "workflow_file_upload_limit": 10,
+        "image_file_batch_limit": 10,
+        "single_chunk_attachment_limit": 10,
+        "attachment_image_file_size_limit": 2
+      }
+    }
+  },
+  "hash": "088f3983aee91dc2902e511eff9c62b8e13860890e060c217efc34a94310b674",
+  "version": "draft",
+  "marked_name": "",
+  "marked_comment": "",
+  "created_by": {
+    "id": "5e6df2c8-8d8c-4474-97f7-2ad3b25cf45b",
+    "name": "admin",
+    "email": "admin@erp-core.com"
+  },
+  "created_at": 1778541210,
+  "updated_by": {
+    "id": "5e6df2c8-8d8c-4474-97f7-2ad3b25cf45b",
+    "name": "admin",
+    "email": "admin@erp-core.com"
+  },
+  "updated_at": 1778541831,
+  "tool_published": false,
+  "environment_variables": [],
+  "conversation_variables": [],
+  "rag_pipeline_variables": []
+}
