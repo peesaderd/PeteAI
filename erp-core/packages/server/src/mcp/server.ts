@@ -128,6 +128,37 @@ const TOOLS = [
     notes: z.string().optional().describe('Updated notes (JSON string for POS fields)'),
   })),
 
+  tool('update_order_items', 'Replace all items in an order', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    orderId: z.string().describe('Order ID'),
+    items: z.array(z.object({
+      productId: z.string(),
+      quantity: z.number(),
+      unitPrice: z.number().optional(),
+    })).describe('New order items'),
+  })),
+
+  tool('append_order_items', 'Append items to an existing order', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    orderId: z.string().describe('Order ID'),
+    items: z.array(z.object({
+      productId: z.string(),
+      quantity: z.number(),
+      unitPrice: z.number().optional(),
+    })).describe('Items to append'),
+  })),
+
+  tool('mark_item_served', 'Mark a specific order item as served', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    orderId: z.string().describe('Order ID'),
+    itemId: z.string().describe('Order item ID'),
+  })),
+
+  tool('delete_order', 'Cancel/delete an order', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    orderId: z.string().describe('Order ID'),
+  })),
+
   // ---- INVENTORY ----
   tool('get_inventory', 'Get inventory status', z.object({
     tenantId: z.string().describe('Tenant ID'),
@@ -1635,6 +1666,79 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
       const items = db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(order.id);
       return { content: [{ type: "text", text: JSON.stringify({ ...order, items }, null, 2) }] };
+    }
+
+    case 'update_order_items': {
+      const { orderId, items } = args;
+      const existing = db.prepare("SELECT * FROM orders WHERE id = ? AND tenant_id = ?").get(orderId, tenantId) as any;
+      if (!existing) throw new Error("Order not found");
+      if (existing.status === "paid" || existing.status === "cancelled") throw new Error("Cannot modify a paid/cancelled order");
+      db.prepare("DELETE FROM order_items WHERE order_id = ?").run(orderId);
+      let subtotal = 0;
+      const insertItem = db.prepare("INSERT INTO order_items (id, order_id, product_id, name, sku, quantity, unit_price, total_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      for (const item of items) {
+        const product = db.prepare("SELECT * FROM products WHERE id = ? AND tenant_id = ?").get(item.productId, tenantId) as any;
+        if (!product) throw new Error("Product " + item.productId + " not found");
+        const price = item.unitPrice || product.price;
+        const totalPrice = price * item.quantity;
+        subtotal += totalPrice;
+        insertItem.run(crypto.randomUUID(), orderId, item.productId, product.name, product.sku, item.quantity, price, totalPrice);
+      }
+      const now = Date.now();
+      const total = subtotal + (existing.shipping_cost || 0);
+      db.prepare("UPDATE orders SET subtotal = ?, total = ?, updated_at = ? WHERE id = ?").run(subtotal, total, now, orderId);
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+      const orderItems = db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(order.id);
+      return { content: [{ type: "text", text: JSON.stringify({ ...order, items: orderItems }, null, 2) }] };
+    }
+
+    case 'append_order_items': {
+      const { orderId, items } = args;
+      const existing = db.prepare("SELECT * FROM orders WHERE id = ? AND tenant_id = ?").get(orderId, tenantId) as any;
+      if (!existing) throw new Error("Order not found");
+      if (existing.status === "paid" || existing.status === "cancelled") throw new Error("Cannot modify a paid/cancelled order");
+      let subtotal = existing.subtotal || 0;
+      const insertItem = db.prepare("INSERT INTO order_items (id, order_id, product_id, name, sku, quantity, unit_price, total_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      for (const item of items) {
+        const product = db.prepare("SELECT * FROM products WHERE id = ? AND tenant_id = ?").get(item.productId, tenantId) as any;
+        if (!product) throw new Error("Product " + item.productId + " not found");
+        const price = item.unitPrice || product.price;
+        const totalPrice = price * item.quantity;
+        subtotal += totalPrice;
+        insertItem.run(crypto.randomUUID(), orderId, item.productId, product.name, product.sku, item.quantity, price, totalPrice);
+      }
+      const now = Date.now();
+      const total = subtotal + (existing.shipping_cost || 0);
+      db.prepare("UPDATE orders SET subtotal = ?, total = ?, updated_at = ? WHERE id = ?").run(subtotal, total, now, orderId);
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+      const orderItems = db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(order.id);
+      return { content: [{ type: "text", text: JSON.stringify({ ...order, items: orderItems }, null, 2) }] };
+    }
+
+    case 'mark_item_served': {
+      const { orderId, itemId } = args;
+      const existing = db.prepare("SELECT * FROM orders WHERE id = ? AND tenant_id = ?").get(orderId, tenantId) as any;
+      if (!existing) throw new Error("Order not found");
+      const item = db.prepare("SELECT * FROM order_items WHERE id = ? AND order_id = ?").get(itemId, orderId) as any;
+      if (!item) throw new Error("Order item not found");
+      const now = Date.now();
+      let notes = existing.notes ? JSON.parse(existing.notes) : {};
+      if (typeof notes === "string") { try { notes = JSON.parse(notes); } catch { notes = {}; } }
+      if (!notes.servedItems) notes.servedItems = {};
+      notes.servedItems[itemId] = { servedAt: now, name: item.name };
+      db.prepare("UPDATE orders SET notes = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(notes), now, orderId);
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+      const orderItems = db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(order.id);
+      return { content: [{ type: "text", text: JSON.stringify({ ...order, items: orderItems }, null, 2) }] };
+    }
+
+    case 'delete_order': {
+      const { orderId } = args;
+      const existing = db.prepare("SELECT * FROM orders WHERE id = ? AND tenant_id = ?").get(orderId, tenantId) as any;
+      if (!existing) throw new Error("Order not found");
+      db.prepare("DELETE FROM order_items WHERE order_id = ?").run(orderId);
+      db.prepare("DELETE FROM orders WHERE id = ? AND tenant_id = ?").run(orderId, tenantId);
+      return { content: [{ type: "text", text: JSON.stringify({ success: true, deleted: orderId }, null, 2) }] };
     }
 
     case 'get_inventory': {
