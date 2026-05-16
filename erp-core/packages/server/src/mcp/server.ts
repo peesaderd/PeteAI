@@ -385,6 +385,15 @@ const TOOLS = [
     tenantId: z.string().describe('Tenant ID'),
   })),
 
+  tool('get_settings', 'Get POS/shop settings', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('update_settings', 'Update POS/shop settings', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    settings: z.record(z.any()).describe('Settings key-value pairs to update'),
+  })),
+
   // ---- ANALYTICS ----
   tool('get_dashboard_summary', 'Get dashboard summary metrics with period comparison', z.object({
     tenantId: z.string().describe('Tenant ID'),
@@ -1893,6 +1902,22 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       const customerCount = db.prepare('SELECT COUNT(*) as count FROM customers WHERE tenant_id = ?').get(tenantId) as any;
       const storageSize = db.prepare('SELECT COUNT(*) as count FROM kb_documents WHERE tenant_id = ?').get(tenantId) as any;
       return { content: [{ type: 'text', text: JSON.stringify({ orders: orderCount.count, products: productCount.count, customers: customerCount.count, documents: storageSize.count }, null, 2) }] };
+    }
+
+    case 'get_settings': {
+      db.prepare('CREATE TABLE IF NOT EXISTS tenant_settings (tenant_id TEXT PRIMARY KEY, settings TEXT NOT NULL)').run();
+      const row = db.prepare('SELECT settings FROM tenant_settings WHERE tenant_id = ?').get(tenantId) as any;
+      const settings = row ? JSON.parse(row.settings) : {};
+      return { content: [{ type: 'text', text: JSON.stringify(settings, null, 2) }] };
+    }
+
+    case 'update_settings': {
+      db.prepare('CREATE TABLE IF NOT EXISTS tenant_settings (tenant_id TEXT PRIMARY KEY, settings TEXT NOT NULL)').run();
+      const existing = db.prepare('SELECT settings FROM tenant_settings WHERE tenant_id = ?').get(tenantId) as any;
+      const current = existing ? JSON.parse(existing.settings) : {};
+      const merged = { ...current, ...args.settings };
+      db.prepare('INSERT OR REPLACE INTO tenant_settings (tenant_id, settings) VALUES (?, ?)').run(tenantId, JSON.stringify(merged));
+      return { content: [{ type: 'text', text: JSON.stringify(merged, null, 2) }] };
     }
 
     // ---- ANALYTICS HANDLERS ----
