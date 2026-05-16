@@ -121,6 +121,13 @@ const TOOLS = [
     notes: z.string().optional(),
   })),
 
+  tool('update_order_status', 'Update order status', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    orderId: z.string().describe('Order ID'),
+    status: z.enum(["pending", "preparing", "served", "paid", "cancelled"]).describe('New order status'),
+    notes: z.string().optional().describe('Updated notes (JSON string for POS fields)'),
+  })),
+
   // ---- INVENTORY ----
   tool('get_inventory', 'Get inventory status', z.object({
     tenantId: z.string().describe('Tenant ID'),
@@ -1606,6 +1613,28 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       }
       const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
       return { content: [{ type: 'text', text: JSON.stringify(order, null, 2) }] };
+    }
+
+    case 'update_order_status': {
+      const { orderId, status, notes } = args;
+      const existing = db.prepare("SELECT * FROM orders WHERE id = ? AND tenant_id = ?").get(orderId, tenantId) as any;
+      if (!existing) throw new Error("Order not found");
+      const now = Date.now();
+      let updateNotes = existing.notes;
+      if (notes !== undefined) {
+        try {
+          const existingNotes = existing.notes ? JSON.parse(existing.notes) : {};
+          const newNotes = JSON.parse(notes);
+          updateNotes = JSON.stringify({ ...existingNotes, ...newNotes });
+        } catch {
+          updateNotes = notes;
+        }
+      }
+      db.prepare("UPDATE orders SET status = ?, notes = ?, updated_at = ? WHERE id = ? AND tenant_id = ?")
+        .run(status, updateNotes, now, orderId, tenantId);
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+      const items = db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(order.id);
+      return { content: [{ type: "text", text: JSON.stringify({ ...order, items }, null, 2) }] };
     }
 
     case 'get_inventory': {
