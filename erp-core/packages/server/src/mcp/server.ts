@@ -25,6 +25,35 @@ function tool(name: string, description: string, schema: z.ZodTypeAny) {
 }
 
 const TOOLS = [
+  // ---- AUTH ----
+  tool('auth_register', 'Register a new user', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    email: z.string().describe('User email'),
+    name: z.string().describe('User display name'),
+    password: z.string().describe('Password'),
+    role: z.string().optional().describe('Role (admin, manager, member)'),
+  })),
+
+  tool('auth_login', 'Login with email and password', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    email: z.string().describe('User email'),
+    password: z.string().describe('Password'),
+  })),
+
+  tool('auth_verify', 'Verify a JWT token', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    token: z.string().describe('JWT token to verify'),
+  })),
+
+  tool('auth_list_users', 'List all users in a tenant', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+  })),
+
+  tool('auth_get_user', 'Get user details by ID', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    userId: z.string().describe('User ID'),
+  })),
+
   // ---- PRODUCTS ----
   tool('list_products', 'List all products', z.object({
     tenantId: z.string().describe('Tenant ID'),
@@ -1445,6 +1474,50 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
   const now = Math.floor(Date.now() / 1000);
 
   switch (name) {
+    // ---- AUTH ----
+    case 'auth_register': {
+      const { email, name: userName, password, role } = args;
+      try {
+        const user = await auth.register(tenantId, email, userName, password, role || 'member');
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, user }, null, 2) }] };
+      } catch (err: any) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err.message }, null, 2) }] };
+      }
+    }
+
+    case 'auth_login': {
+      const { email, password } = args;
+      const result = await auth.login(email, password);
+      if (!result) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Invalid email or password' }, null, 2) }] };
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({ success: true, ...result }, null, 2) }] };
+    }
+
+    case 'auth_verify': {
+      const { token } = args;
+      const payload = auth.verifyToken(token);
+      if (!payload) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Invalid or expired token' }, null, 2) }] };
+      }
+      const user = auth.getUser(payload.userId);
+      return { content: [{ type: 'text', text: JSON.stringify({ success: true, payload, user }, null, 2) }] };
+    }
+
+    case 'auth_list_users': {
+      const users = auth.listUsers(tenantId);
+      return { content: [{ type: 'text', text: JSON.stringify(users, null, 2) }] };
+    }
+
+    case 'auth_get_user': {
+      const { userId } = args;
+      const user = auth.getUser(userId);
+      if (!user) {
+        return { content: [{ type: 'text', text: JSON.stringify({ error: 'User not found' }) }] };
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(user, null, 2) }] };
+    }
+
     case 'list_products': {
       const { categoryId, status, search, limit = 50, offset = 0 } = args;
       let sql = 'SELECT * FROM products WHERE tenant_id = ?';
