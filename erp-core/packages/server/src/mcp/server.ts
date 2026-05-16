@@ -73,6 +73,12 @@ const TOOLS = [
     productId: z.string().describe('Product ID'),
   })),
 
+  tool('get_product_by_barcode', 'Get product by barcode', z.object({
+    tenantId: z.string().describe('Tenant ID'),
+    barcode: z.string().describe('Barcode'),
+  })),
+
+
   tool('create_product', 'Create a new product', z.object({
     tenantId: z.string().describe('Tenant ID'),
     name: z.string().describe('Product name'),
@@ -84,6 +90,7 @@ const TOOLS = [
     categoryId: z.string().optional().describe('Category ID'),
     tags: z.array(z.string()).optional().describe('Tags'),
     weight: z.number().optional().describe('Weight'),
+    barcode: z.string().optional().describe('Barcode'),
   })),
 
   tool('update_product', 'Update a product', z.object({
@@ -92,6 +99,7 @@ const TOOLS = [
     name: z.string().optional(),
     description: z.string().optional(),
     price: z.number().optional(),
+    barcode: z.string().optional().describe('Barcode'),
     quantity: z.number().optional(),
     status: z.enum(['active', 'draft', 'archived']).optional(),
   })),
@@ -1593,11 +1601,17 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       return { content: [{ type: 'text', text: JSON.stringify(product, null, 2) }] };
     }
 
+    case 'get_product_by_barcode': {
+      const product = db.prepare('SELECT * FROM products WHERE barcode = ? AND tenant_id = ?').get(args.barcode, tenantId);
+      if (!product) throw new Error('Product not found for barcode: ' + args.barcode);
+      return { content: [{ type: 'text', text: JSON.stringify(product, null, 2) }] };
+    }
+
     case 'create_product': {
       const id = crypto.randomUUID();
       const { name, description, sku, price, costPrice, quantity = 0, categoryId, tags, weight } = args;
-      db.prepare(`INSERT INTO products (id, tenant_id, name, description, sku, price, cost_price, quantity, category_id, tags, weight, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(id, tenantId, name, description || null, sku || null, price, costPrice || 0, quantity, categoryId || null, JSON.stringify(tags || []), weight || null, now, now);
+      db.prepare(`INSERT INTO products (id, tenant_id, name, description, sku, price, cost_price, quantity, category_id, tags, weight, barcode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, tenantId, name, description || null, sku || null, price, costPrice || 0, quantity, categoryId || null, JSON.stringify(tags || []), weight || null, args.barcode || null, now, now);
       const product = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
       return { content: [{ type: 'text', text: JSON.stringify(product, null, 2) }] };
     }
@@ -1606,7 +1620,7 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       const { productId, ...fields } = args;
       const updates: string[] = [];
       const params: any[] = [];
-      ['name', 'description', 'price', 'quantity', 'status'].forEach(f => {
+      ['name', 'description', 'price', 'quantity', 'status', 'barcode'].forEach(f => {
         if (fields[f] !== undefined) { updates.push(`${f} = ?`); params.push(fields[f]); }
       });
       if (updates.length === 0) throw new Error('No fields to update');
