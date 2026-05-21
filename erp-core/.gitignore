@@ -15,3 +15,6 @@ backups/
 # Visual QA reports
 visual-qa/reports/
 visual-qa/screenshots/
+
+# Build artifacts
+packages/web/assets/
