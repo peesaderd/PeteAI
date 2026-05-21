@@ -5,6 +5,8 @@
 import { Router, Request, Response } from 'express';
 import { AuthManager } from '../auth/auth.js';
 import { getDatabase } from '../db/database.js';
+import { createLLMProvidersRouter } from '../settings/llmProviders.js';
+import docsRouter from "../docs-server.js";
 
 export function createRouter() {
   const router = Router();
@@ -105,6 +107,11 @@ export function createRouter() {
       res.status(400).json({ success: false, error: err.message });
     }
   });
+
+  // ---- LLM Provider Settings ----
+  router.use("/settings/llm-providers", createLLMProvidersRouter());
+  // ---- Documentation ----
+  router.use("/docs", docsRouter);
 
   return router;
 }

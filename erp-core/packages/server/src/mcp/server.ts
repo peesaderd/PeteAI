@@ -169,6 +169,7 @@ const TOOLS = [
   tool('delete_order', 'Cancel/delete an order', z.object({
     tenantId: z.string().describe('Tenant ID'),
     orderId: z.string().describe('Order ID'),
+
   })),
 
   // ---- INVENTORY ----
@@ -1772,6 +1773,7 @@ export async function handleToolCall(name: string, _args: Record<string, any>, d
       db.prepare("DELETE FROM orders WHERE id = ? AND tenant_id = ?").run(orderId, tenantId);
       return { content: [{ type: "text", text: JSON.stringify({ success: true, deleted: orderId }, null, 2) }] };
     }
+
 
     case 'get_inventory': {
       const { lowStockOnly, threshold = 5 } = args;

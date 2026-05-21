@@ -11,6 +11,7 @@ import { createMCPServer, handleToolCall } from './mcp/server.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { getDatabase } from './db/database.js';
 import { AuthManager } from './auth/auth.js';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -32,6 +33,16 @@ async function main() {
   if (MODE === 'http' || MODE === 'both') {
     const app = express();
     app.use(cors());
+
+    // Proxy AI Orchestrator routes (chat, agents, tasks, etc.)
+    // Note: pathFilter paths are relative to the mount point (/api)
+    const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:54516';
+    app.use(createProxyMiddleware({
+      target: ORCHESTRATOR_URL,
+      pathFilter: ['/api/chat', '/api/agents', '/api/tasks', '/api/mcp', '/api/siyuan', '/api/openhands', '/api/workflows', '/api/health'],
+      changeOrigin: true,
+    }));
+
     app.use(express.json());
 
     // Serve static web app (from packages/web/dist)

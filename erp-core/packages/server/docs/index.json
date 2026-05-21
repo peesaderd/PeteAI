@@ -1,0 +1,15 @@
+{
+  "title": "ERP Core Documentation",
+  "version": "0.1.0",
+  "modules": [
+    { "id": "sale", "title": "Sale", "path": "modules/sale.md", "tags": ["sale", "order", "invoice"] },
+    { "id": "purchase", "title": "Purchase", "path": "modules/purchase.md", "tags": ["purchase", "procurement", "supplier"] },
+    { "id": "inventory", "title": "Inventory", "path": "modules/inventory.md", "tags": ["inventory", "warehouse", "stock"] },
+    { "id": "production", "title": "Production", "path": "modules/production.md", "tags": ["production", "manufacturing", "bom"] },
+    { "id": "finance", "title": "Finance", "path": "modules/finance.md", "tags": ["finance", "accounting", "tax"] },
+    { "id": "hr", "title": "Human Resources", "path": "modules/hr.md", "tags": ["hr", "employee", "payroll"] },
+    { "id": "marketing", "title": "Marketing", "path": "modules/marketing.md", "tags": ["marketing", "campaign", "promotion"] },
+    { "id": "procurement", "title": "Procurement", "path": "modules/procurement.md", "tags": ["procurement", "purchase", "supplier"] },
+    { "id": "customer", "title": "Customer Management", "path": "modules/customer.md", "tags": ["customer", "crm", "contact"] }
+  ]
+}

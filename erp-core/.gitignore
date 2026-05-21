@@ -11,3 +11,10 @@ backups/
 .DS_Store
 *.log
 *.bak
+
+# Visual QA reports
+visual-qa/reports/
+visual-qa/screenshots/
+
+# Build artifacts
+packages/web/assets/
