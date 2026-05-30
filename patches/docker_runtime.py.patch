@@ -1,0 +1,8 @@
+--- a/docker_runtime.py
++++ b/docker_runtime.py
+@@ -X,XX +XX,XX @@
+ def _attach_to_container(self, container):
+         container.start()
++        container.reload()
+         # Refresh network settings after container restart
+         self.network = container.attrs['NetworkSettings']
